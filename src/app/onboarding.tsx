@@ -1,31 +1,16 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { CalendarDays, LogOut } from 'lucide-react-native';
 import { useState } from 'react';
 import { Platform } from 'react-native';
 
-import { AppText, Button, Card, Field, Input, OptionGroup, Screen } from '@/components/ui';
+import { PalettePicker } from '@/components/palette-picker';
+import { AppText, Button, Card, OptionGroup, Screen, TextField } from '@/components/ui';
+import { ACTIVITY_OPTIONS, GENDER_OPTIONS, GOAL_OPTIONS, SEX_OPTIONS } from '@/constants/options';
+import { suggestedPalette, type Gender } from '@/design/palettes';
+import { useTheme } from '@/design/theme-provider';
 import type { ActivityLevel, Goal, Sex } from '@/lib/health';
 import { formatDateOnly } from '@/lib/profile';
-import { supabase } from '@/lib/supabase';
 import { useSession } from '@/providers/session-provider';
-
-const SEX_OPTIONS = [
-  { value: 'female', label: 'Mujer' },
-  { value: 'male', label: 'Hombre' },
-] as const satisfies readonly { value: Sex; label: string }[];
-
-const ACTIVITY_OPTIONS = [
-  { value: 'sedentary', label: 'Sedentario' },
-  { value: 'light', label: 'Ligero (1-3 días)' },
-  { value: 'moderate', label: 'Moderado (3-5 días)' },
-  { value: 'active', label: 'Activo (6-7 días)' },
-  { value: 'very_active', label: 'Muy activo' },
-] as const satisfies readonly { value: ActivityLevel; label: string }[];
-
-const GOAL_OPTIONS = [
-  { value: 'lose', label: 'Bajar de peso' },
-  { value: 'maintain', label: 'Mantener' },
-  { value: 'gain', label: 'Subir / ganar músculo' },
-] as const satisfies readonly { value: Goal; label: string }[];
 
 const DEFAULT_BIRTH_DATE = new Date(1990, 0, 1);
 
@@ -35,10 +20,18 @@ function parseDecimal(text: string): number | null {
 }
 
 export default function OnboardingScreen() {
-  const { session, refreshProfile, signOut } = useSession();
+  const { profile, updateProfile, signOut } = useSession();
+  const { palette, setPalette } = useTheme();
 
-  const [displayName, setDisplayName] = useState('');
-  const [sex, setSex] = useState<Sex | null>(null);
+  // Quien se registró con Google aún no eligió género ni paleta.
+  const needsAppearance = !profile?.theme_palette;
+
+  const [displayName, setDisplayName] = useState(profile?.display_name ?? '');
+  const [gender, setGender] = useState<Gender | null>((profile?.gender as Gender | null) ?? null);
+  const [paletteTouched, setPaletteTouched] = useState(false);
+  const [sex, setSex] = useState<Sex | null>(
+    profile?.gender === 'female' || profile?.gender === 'male' ? profile.gender : null,
+  );
   const [birthDate, setBirthDate] = useState<Date | null>(null);
   const [showAndroidPicker, setShowAndroidPicker] = useState(false);
   const [height, setHeight] = useState('');
@@ -53,107 +46,120 @@ export default function OnboardingScreen() {
   const isComplete =
     !!displayName.trim() && !!sex && !!birthDate && !!heightCm && !!weightKg && !!activity && !!goal;
 
+  function handleGender(next: Gender) {
+    setGender(next);
+    if (!sex && (next === 'female' || next === 'male')) setSex(next);
+    if (!paletteTouched) setPalette(suggestedPalette(next));
+  }
+
   async function save() {
-    if (!session || !isComplete) return;
+    if (!isComplete || !birthDate) return;
     setSaving(true);
     setError(null);
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({
-        display_name: displayName.trim(),
-        sex,
-        birth_date: formatDateOnly(birthDate),
-        height_cm: heightCm,
-        weight_kg: weightKg,
-        activity_level: activity,
-        goal,
-        onboarded_at: new Date().toISOString(),
-      })
-      .eq('id', session.user.id);
-    if (updateError) {
-      setSaving(false);
+    const result = await updateProfile({
+      display_name: displayName.trim(),
+      gender,
+      sex,
+      birth_date: formatDateOnly(birthDate),
+      height_cm: heightCm,
+      weight_kg: weightKg,
+      activity_level: activity,
+      goal,
+      theme_palette: palette,
+      onboarded_at: new Date().toISOString(),
+    });
+    setSaving(false);
+    if (result.error) {
       setError(
-        updateError.code === '23514'
+        /check constraint/i.test(result.error)
           ? 'Revisa estatura (50-260 cm) y peso (20-400 kg).'
-          : updateError.message,
+          : 'No pudimos guardar tus datos. Inténtalo de nuevo.',
       );
-      return;
     }
-    // Al recargar el perfil, onboarded_at ya existe y el layout lleva al inicio.
-    await refreshProfile();
+    // Con onboarded_at guardado, el layout raíz lleva al inicio.
   }
 
   return (
     <Screen>
       <AppText variant="title">Cuéntanos de ti</AppText>
-      <AppText variant="muted">
+      <AppText tone="secondary">
         Con estos datos calculamos tu IMC y las calorías que necesitas al día.
       </AppText>
 
       <Card>
-        <Field label="¿Cómo te llamamos?">
-          <Input value={displayName} onChangeText={setDisplayName} placeholder="Nombre" />
-        </Field>
+        <TextField label="¿Cómo te llamamos?" value={displayName} onChangeText={setDisplayName} />
 
-        <Field label="Sexo biológico (para el cálculo metabólico)">
-          <OptionGroup options={SEX_OPTIONS} value={sex} onChange={setSex} />
-        </Field>
+        {needsAppearance && (
+          <OptionGroup label="Género (opcional)" options={GENDER_OPTIONS} value={gender} onChange={handleGender} />
+        )}
 
-        <Field label="Fecha de nacimiento">
-          {Platform.OS === 'ios' ? (
-            <DateTimePicker
-              value={birthDate ?? DEFAULT_BIRTH_DATE}
-              mode="date"
-              display="compact"
-              maximumDate={new Date()}
-              onValueChange={(_event, date) => setBirthDate(date)}
-              style={{ alignSelf: 'flex-start' }}
+        <OptionGroup label="Sexo biológico (para el cálculo metabólico)" options={SEX_OPTIONS} value={sex} onChange={setSex} />
+
+        <AppText variant="label">Fecha de nacimiento</AppText>
+        {Platform.OS === 'ios' ? (
+          <DateTimePicker
+            value={birthDate ?? DEFAULT_BIRTH_DATE}
+            mode="date"
+            display="compact"
+            maximumDate={new Date()}
+            onValueChange={(_event, date) => setBirthDate(date)}
+            accessibilityLabel="Fecha de nacimiento"
+            style={{ alignSelf: 'flex-start' }}
+          />
+        ) : (
+          <>
+            <Button
+              title={birthDate ? birthDate.toLocaleDateString() : 'Elegir fecha'}
+              icon={CalendarDays}
+              variant="outline"
+              onPress={() => setShowAndroidPicker(true)}
             />
-          ) : (
-            <>
-              <Button
-                title={birthDate ? birthDate.toLocaleDateString('es-MX') : 'Elegir fecha'}
-                variant="secondary"
-                onPress={() => setShowAndroidPicker(true)}
+            {showAndroidPicker && (
+              <DateTimePicker
+                value={birthDate ?? DEFAULT_BIRTH_DATE}
+                mode="date"
+                maximumDate={new Date()}
+                onValueChange={(_event, date) => {
+                  setShowAndroidPicker(false);
+                  setBirthDate(date);
+                }}
+                onDismiss={() => setShowAndroidPicker(false)}
               />
-              {showAndroidPicker && (
-                <DateTimePicker
-                  value={birthDate ?? DEFAULT_BIRTH_DATE}
-                  mode="date"
-                  maximumDate={new Date()}
-                  onValueChange={(_event, date) => {
-                    setShowAndroidPicker(false);
-                    setBirthDate(date);
-                  }}
-                  onDismiss={() => setShowAndroidPicker(false)}
-                />
-              )}
-            </>
-          )}
-        </Field>
+            )}
+          </>
+        )}
 
-        <Field label="Estatura (cm)">
-          <Input value={height} onChangeText={setHeight} placeholder="170" keyboardType="decimal-pad" />
-        </Field>
-
-        <Field label="Peso (kg)">
-          <Input value={weight} onChangeText={setWeight} placeholder="70.5" keyboardType="decimal-pad" />
-        </Field>
+        <TextField label="Estatura (cm)" value={height} onChangeText={setHeight} placeholder="170" keyboardType="decimal-pad" />
+        <TextField label="Peso (kg)" value={weight} onChangeText={setWeight} placeholder="70.5" keyboardType="decimal-pad" />
       </Card>
 
       <Card>
-        <Field label="Nivel de actividad">
-          <OptionGroup options={ACTIVITY_OPTIONS} value={activity} onChange={setActivity} />
-        </Field>
-        <Field label="Meta">
-          <OptionGroup options={GOAL_OPTIONS} value={goal} onChange={setGoal} />
-        </Field>
+        <OptionGroup label="Nivel de actividad" options={ACTIVITY_OPTIONS} value={activity} onChange={setActivity} />
+        <OptionGroup label="Meta" options={GOAL_OPTIONS} value={goal} onChange={setGoal} />
       </Card>
 
-      {error && <AppText variant="error">{error}</AppText>}
+      {needsAppearance && (
+        <Card>
+          <AppText variant="cardTitle">Elige tus colores</AppText>
+          <PalettePicker
+            value={palette}
+            suggested={suggestedPalette(gender)}
+            onChange={(next) => {
+              setPaletteTouched(true);
+              setPalette(next);
+            }}
+          />
+        </Card>
+      )}
+
+      {error && (
+        <AppText variant="secondary" tone="error" accessibilityLiveRegion="assertive">
+          {error}
+        </AppText>
+      )}
 
       <Button title="Guardar y continuar" onPress={save} loading={saving} disabled={!isComplete} />
-      <Button title="Cerrar sesión" variant="secondary" onPress={signOut} />
+      <Button title="Cerrar sesión" icon={LogOut} variant="ghost" onPress={signOut} />
     </Screen>
   );
 }

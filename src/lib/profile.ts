@@ -2,6 +2,7 @@ import type { Database } from './database.types';
 import type { ActivityLevel, Goal, HealthProfile, Sex } from './health';
 
 export type Profile = Database['public']['Tables']['profiles']['Row'];
+export type ProfileUpdate = Database['public']['Tables']['profiles']['Update'];
 
 /** Convierte 'YYYY-MM-DD' a Date en hora local (evita el corrimiento de zona de new Date(iso)). */
 export function parseDateOnly(value: string): Date {

@@ -6,3 +6,6 @@
 .env.keys
 .env.local
 .env.*.local
+
+# secretos para env() de config.toml
+.env

@@ -1,7 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, use, useCallback, useEffect, useState, type PropsWithChildren } from 'react';
 
-import type { Profile } from '@/lib/profile';
+import type { Profile, ProfileUpdate } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 
 type SessionContextValue = {
@@ -9,6 +9,7 @@ type SessionContextValue = {
   profile: Profile | null;
   isLoading: boolean;
   refreshProfile: () => Promise<void>;
+  updateProfile: (patch: ProfileUpdate) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 };
 
@@ -71,12 +72,30 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setLoaded({ userId, profile: await fetchProfile(userId) });
   }, [userId]);
 
+  const updateProfile = useCallback(
+    async (patch: ProfileUpdate) => {
+      if (!userId) return { error: null };
+      // Optimista: la UI (p. ej. el tema) cambia al instante; si falla, se recarga.
+      setLoaded((current) =>
+        current?.userId === userId && current.profile
+          ? { userId, profile: { ...current.profile, ...patch } }
+          : current,
+      );
+      const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
+      if (error) {
+        await refreshProfile();
+      }
+      return { error: error?.message ?? null };
+    },
+    [userId, refreshProfile],
+  );
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
   }, []);
 
   return (
-    <SessionContext value={{ session, profile, isLoading, refreshProfile, signOut }}>
+    <SessionContext value={{ session, profile, isLoading, refreshProfile, updateProfile, signOut }}>
       {children}
     </SessionContext>
   );

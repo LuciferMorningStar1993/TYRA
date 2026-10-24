@@ -18,39 +18,51 @@ export type Database = {
         Row: {
           activity_level: string | null
           birth_date: string | null
+          color_mode: string | null
           created_at: string
           display_name: string | null
+          gender: string | null
           goal: string | null
           height_cm: number | null
           id: string
           onboarded_at: string | null
+          phone: string | null
           sex: string | null
+          theme_palette: string | null
           updated_at: string
           weight_kg: number | null
         }
         Insert: {
           activity_level?: string | null
           birth_date?: string | null
+          color_mode?: string | null
           created_at?: string
           display_name?: string | null
+          gender?: string | null
           goal?: string | null
           height_cm?: number | null
           id: string
           onboarded_at?: string | null
+          phone?: string | null
           sex?: string | null
+          theme_palette?: string | null
           updated_at?: string
           weight_kg?: number | null
         }
         Update: {
           activity_level?: string | null
           birth_date?: string | null
+          color_mode?: string | null
           created_at?: string
           display_name?: string | null
+          gender?: string | null
           goal?: string | null
           height_cm?: number | null
           id?: string
           onboarded_at?: string | null
+          phone?: string | null
           sex?: string | null
+          theme_palette?: string | null
           updated_at?: string
           weight_kg?: number | null
         }

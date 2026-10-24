@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "dependencies": {
+    "@expo-google-fonts/inter": "^0.4.2",
     "@expo/ui": "~58.0.23",
     "@react-native-community/datetimepicker": "9.2.1",
     "@supabase/supabase-js": "^2.118.0",
@@ -23,6 +24,7 @@
     "expo-web-browser": "~58.0.6",
     "jest": "~30.5.2",
     "jest-expo": "~58.0.12",
+    "lucide-react-native": "^1.61.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.0",
@@ -30,6 +32,7 @@
     "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.10.1",
     "react-native-screens": "~4.30.0",
+    "react-native-svg": "15.16.0",
     "react-native-web": "~0.21.4",
     "react-native-worklets": "0.13.0"
   },

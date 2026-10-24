@@ -1,112 +1,107 @@
+import { router } from 'expo-router';
+import { LogIn } from 'lucide-react-native';
 import { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 
-import { AppText, Button, Field, Input, Screen } from '@/components/ui';
-import { supabase } from '@/lib/supabase';
-
-const OTP_LENGTH = 6;
+import { AuthHeader, OrDivider } from '@/components/auth-header';
+import { GoogleLogo } from '@/components/google-logo';
+import { AppText, Button, Screen, TextField } from '@/components/ui';
+import { space } from '@/design/tokens';
+import { signInWithGoogle, signInWithPassword } from '@/lib/auth';
+import { parseIdentifier } from '@/lib/identifier';
 
 export default function SignInScreen() {
-  const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [step, setStep] = useState<'email' | 'code'>('email');
-  const [loading, setLoading] = useState(false);
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [identifierError, setIdentifierError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<'password' | 'google' | null>(null);
 
-  const normalizedEmail = email.trim().toLowerCase();
-
-  async function sendCode() {
-    setLoading(true);
-    setError(null);
-    // shouldCreateUser: false → solo entran los usuarios dados de alta en Supabase (la familia).
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: normalizedEmail,
-      options: { shouldCreateUser: false },
-    });
-    setLoading(false);
-    if (otpError) {
-      setError(
-        otpError.status === 422 || otpError.code === 'otp_disabled'
-          ? 'Este correo no tiene acceso a TYRA.'
-          : otpError.message,
-      );
+  async function handleSignIn() {
+    const parsed = parseIdentifier(identifier);
+    if (!parsed) {
+      setIdentifierError('Escribe un correo válido o un teléfono de 10 dígitos.');
       return;
     }
-    setStep('code');
+    setIdentifierError(null);
+    setError(null);
+    setLoading('password');
+    const result = await signInWithPassword(parsed, password);
+    setLoading(null);
+    setError(result.error);
+    // Si fue exitoso, el layout raíz redirige según la sesión.
   }
 
-  async function verifyCode() {
-    setLoading(true);
+  async function handleGoogle() {
     setError(null);
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      email: normalizedEmail,
-      token: code.trim(),
-      type: 'email',
-    });
-    setLoading(false);
-    if (verifyError) {
-      setError('Código inválido o expirado.');
-    }
-    // Si fue exitoso, onAuthStateChange actualiza la sesión y el layout redirige.
+    setLoading('google');
+    const result = await signInWithGoogle();
+    setLoading(null);
+    setError(result.error);
   }
 
   return (
-    <Screen>
-      <AppText variant="title">TYRA</AppText>
-      <AppText variant="muted">Salud y finanzas en un solo lugar.</AppText>
+    <Screen centered>
+      <AuthHeader title="Bienvenido a TYRA" subtitle="Tu salud y tus finanzas en un solo lugar." />
 
-      {step === 'email' ? (
-        <>
-          <Field label="Correo">
-            <Input
-              value={email}
-              onChangeText={setEmail}
-              placeholder="tu@correo.com"
-              autoCapitalize="none"
-              autoComplete="email"
-              keyboardType="email-address"
-              textContentType="emailAddress"
-            />
-          </Field>
-          <Button
-            title="Enviar código"
-            onPress={sendCode}
-            loading={loading}
-            disabled={!normalizedEmail.includes('@')}
-          />
-        </>
-      ) : (
-        <>
-          <AppText>Te enviamos un código a {normalizedEmail}.</AppText>
-          <Field label="Código">
-            <Input
-              value={code}
-              onChangeText={(text) => setCode(text.replace(/\D/g, ''))}
-              placeholder="123456"
-              keyboardType="number-pad"
-              autoComplete="one-time-code"
-              textContentType="oneTimeCode"
-              maxLength={OTP_LENGTH}
-            />
-          </Field>
-          <Button
-            title="Entrar"
-            onPress={verifyCode}
-            loading={loading}
-            disabled={code.length !== OTP_LENGTH}
-          />
-          <Button
-            title="Usar otro correo"
-            variant="secondary"
-            onPress={() => {
-              setStep('email');
-              setCode('');
-              setError(null);
-            }}
-          />
-        </>
+      <TextField
+        label="Correo o teléfono"
+        hint="Tu teléfono a 10 dígitos o tu correo."
+        value={identifier}
+        onChangeText={setIdentifier}
+        error={identifierError}
+        autoCapitalize="none"
+        autoComplete="username"
+        textContentType="username"
+        keyboardType="email-address"
+        returnKeyType="next"
+      />
+      <TextField
+        label="Contraseña"
+        password
+        value={password}
+        onChangeText={setPassword}
+        autoComplete="current-password"
+        textContentType="password"
+        returnKeyType="go"
+        onSubmitEditing={handleSignIn}
+      />
+
+      {error && (
+        <AppText variant="secondary" tone="error" accessibilityLiveRegion="assertive">
+          {error}
+        </AppText>
       )}
 
-      {error && <AppText variant="error">{error}</AppText>}
+      <Button
+        title="Iniciar sesión"
+        icon={LogIn}
+        onPress={handleSignIn}
+        loading={loading === 'password'}
+        disabled={!identifier.trim() || !password || loading !== null}
+      />
+
+      <OrDivider />
+
+      <Button
+        title="Continuar con Google"
+        variant="outline"
+        leading={<GoogleLogo />}
+        onPress={handleGoogle}
+        loading={loading === 'google'}
+        disabled={loading !== null}
+      />
+
+      <View style={styles.footer}>
+        <AppText variant="body" tone="secondary">
+          ¿No tienes cuenta?
+        </AppText>
+        <Button title="Crear cuenta" variant="ghost" onPress={() => router.push('/sign-up')} />
+      </View>
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  footer: { alignItems: 'center', gap: space.xxs, marginTop: space.xs },
+});
