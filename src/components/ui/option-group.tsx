@@ -14,11 +14,13 @@ export function OptionGroup<T extends string>({
   options,
   value,
   onChange,
+  error,
 }: {
   label: string;
   options: readonly Option<T>[];
   value: T | null;
   onChange: (value: T) => void;
+  error?: string | null;
 }) {
   const { colors } = useTheme();
   return (
@@ -50,6 +52,11 @@ export function OptionGroup<T extends string>({
           );
         })}
       </View>
+      {error && (
+        <AppText variant="secondary" tone="error" accessibilityLiveRegion="polite">
+          {error}
+        </AppText>
+      )}
     </View>
   );
 }

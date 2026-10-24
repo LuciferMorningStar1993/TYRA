@@ -4,7 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import type { Gender, PaletteId } from '@/design/palettes';
 
 import type { Identifier } from './identifier';
-import { supabase } from './supabase';
+import { supabase, supabaseConfig } from './supabase';
 
 // Cierra la ventana emergente de OAuth en web.
 WebBrowser.maybeCompleteAuthSession();
@@ -87,8 +87,9 @@ export async function signUp(input: SignUpInput): Promise<AuthResult> {
 
 async function isGoogleEnabled(): Promise<boolean> {
   try {
-    const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/auth/v1/settings`, {
-      headers: { apikey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '' },
+    // Mismo destino que el cliente (respeta el modo QA local).
+    const response = await fetch(`${supabaseConfig.url}/auth/v1/settings`, {
+      headers: { apikey: supabaseConfig.publishableKey },
     });
     const settings = (await response.json()) as { external?: { google?: boolean } };
     return settings.external?.google === true;

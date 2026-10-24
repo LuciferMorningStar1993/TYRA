@@ -229,3 +229,8 @@ export function suggestedPalette(gender: Gender | null | undefined): PaletteId {
   if (gender === 'male') return 'nordic';
   return 'indigo';
 }
+
+/** Paleta de un borrador (registro/onboarding): la elección explícita siempre gana a la sugerencia. */
+export function draftPalette(explicit: PaletteId | null, gender: Gender | null | undefined): PaletteId {
+  return explicit ?? suggestedPalette(gender);
+}

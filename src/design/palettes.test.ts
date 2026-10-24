@@ -1,5 +1,5 @@
 import { contrastRatio, WCAG_AA } from './contrast';
-import { PALETTE_IDS, PALETTES, suggestedPalette, type ColorTokens } from './palettes';
+import { draftPalette, PALETTE_IDS, PALETTES, suggestedPalette, type ColorTokens } from './palettes';
 
 type Pair = [foreground: keyof ColorTokens, background: keyof ColorTokens, minimum: number];
 
@@ -46,5 +46,17 @@ describe('suggestedPalette', () => {
     [null, 'indigo'],
   ] as const)('%s → %s', (gender, palette) => {
     expect(suggestedPalette(gender)).toBe(palette);
+  });
+});
+
+describe('draftPalette (registro y onboarding)', () => {
+  it('sin elección explícita sigue la sugerencia del género', () => {
+    expect(draftPalette(null, 'female')).toBe('aurora');
+    expect(draftPalette(null, 'male')).toBe('nordic');
+  });
+
+  it('la elección explícita gana aunque el género cambie después', () => {
+    expect(draftPalette('indigo', 'female')).toBe('indigo');
+    expect(draftPalette('aurora', 'male')).toBe('aurora');
   });
 });

@@ -31,34 +31,39 @@ export default function RootLayout() {
 }
 
 function SplashScreenController({ fontsReady }: { fontsReady: boolean }) {
-  const { isLoading } = useSession();
-  if (fontsReady && !isLoading) {
+  const { route, profileState } = useSession();
+  // En el arranque el splash tapa la carga inicial del perfil; si falla, se muestra el error.
+  const stillLoading = route === 'starting' || profileState?.status === 'loading';
+  if (fontsReady && !stillLoading) {
     SplashScreen.hide();
   }
   return null;
 }
 
 function RootNavigator() {
-  const { session, profile, isLoading } = useSession();
+  const { route } = useSession();
   const { colors } = useTheme();
-  // Mientras se carga el perfil no sabemos si ya hizo onboarding: se queda en las
-  // pantallas de acceso (tapadas por el splash en el arranque).
-  const isReady = !!session && !isLoading;
-  const isOnboarded = !!profile?.onboarded_at;
 
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
-      <Stack.Protected guard={isReady && isOnboarded}>
+      <Stack.Protected guard={route === 'app'}>
         <Stack.Screen name="(app)" />
       </Stack.Protected>
 
-      <Stack.Protected guard={isReady && !isOnboarded}>
+      <Stack.Protected guard={route === 'onboarding'}>
         <Stack.Screen name="onboarding" />
       </Stack.Protected>
 
-      <Stack.Protected guard={!isReady}>
+      {/* Cargando, sin perfil o error recuperable: nunca se manda al onboarding por un fallo de red. */}
+      <Stack.Protected guard={route === 'profile-status'}>
+        <Stack.Screen name="profile-status" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={route === 'auth' || route === 'starting'}>
         <Stack.Screen name="sign-in" />
         <Stack.Screen name="sign-up" />
+        {/* Destino del redirect de Google; con guard para que nunca sea la pantalla "por defecto". */}
+        <Stack.Screen name="auth/callback" />
       </Stack.Protected>
     </Stack>
   );

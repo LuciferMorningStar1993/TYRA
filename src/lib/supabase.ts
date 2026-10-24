@@ -4,17 +4,22 @@ import { createClient } from '@supabase/supabase-js';
 import { AppState, Platform } from 'react-native';
 
 import type { Database } from './database.types';
+import { describeSupabaseConfig, resolveSupabaseConfig } from './supabase-config';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+// Las referencias process.env.EXPO_PUBLIC_* deben ser literales para que Expo las inyecte.
+export const supabaseConfig = resolveSupabaseConfig({
+  qaLocal: process.env.EXPO_PUBLIC_QA_LOCAL,
+  url: process.env.EXPO_PUBLIC_SUPABASE_URL,
+  publishableKey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  qaUrl: process.env.EXPO_PUBLIC_QA_SUPABASE_URL,
+  qaPublishableKey: process.env.EXPO_PUBLIC_QA_SUPABASE_PUBLISHABLE_KEY,
+});
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error(
-    'Faltan EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY en .env.local (ver .env.example)',
-  );
+if (supabaseConfig.mode === 'qa-local') {
+  console.info(`[QA local] ${describeSupabaseConfig(supabaseConfig)}`);
 }
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
+export const supabase = createClient<Database>(supabaseConfig.url, supabaseConfig.publishableKey, {
   auth: {
     storage: localStorage,
     autoRefreshToken: true,

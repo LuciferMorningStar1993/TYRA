@@ -1,13 +1,24 @@
+import { RefreshCw } from 'lucide-react-native';
+
 import { PalettePicker } from '@/components/palette-picker';
 import { AppText, Button, Card, OptionGroup, Screen } from '@/components/ui';
 import { COLOR_MODE_OPTIONS } from '@/constants/options';
 import { useTheme } from '@/design/theme-provider';
 
 export default function AppearanceScreen() {
-  const { palette, mode, setPalette, setMode } = useTheme();
+  const { palette, mode, setPalette, setMode, saveError, retrySave } = useTheme();
 
   return (
     <Screen edges={['bottom']}>
+      {saveError && (
+        <Card tone="muted">
+          <AppText variant="secondary" tone="error" accessibilityLiveRegion="assertive">
+            {saveError}
+          </AppText>
+          <Button title="Reintentar" icon={RefreshCw} variant="outline" onPress={retrySave} />
+        </Card>
+      )}
+
       <Card>
         <OptionGroup label="Modo de color" options={COLOR_MODE_OPTIONS} value={mode} onChange={setMode} />
         <AppText variant="secondary">Automático sigue la configuración de tu teléfono.</AppText>

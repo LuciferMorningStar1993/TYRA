@@ -1,13 +1,13 @@
 import { router } from 'expo-router';
 import { UserPlus } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { AuthHeader, OrDivider } from '@/components/auth-header';
 import { GoogleLogo } from '@/components/google-logo';
 import { PalettePicker } from '@/components/palette-picker';
 import { AppText, Button, Card, OptionGroup, Screen, TextField } from '@/components/ui';
 import { GENDER_OPTIONS } from '@/constants/options';
-import { suggestedPalette, type Gender } from '@/design/palettes';
+import { draftPalette, suggestedPalette, type Gender, type PaletteId } from '@/design/palettes';
 import { useTheme } from '@/design/theme-provider';
 import { signInWithGoogle, signUp } from '@/lib/auth';
 import { isEmail, normalizePhone, passwordProblem } from '@/lib/identifier';
@@ -15,7 +15,7 @@ import { isEmail, normalizePhone, passwordProblem } from '@/lib/identifier';
 type FieldErrors = Partial<Record<'displayName' | 'email' | 'phone' | 'password' | 'confirm', string>>;
 
 export default function SignUpScreen() {
-  const { palette, setPalette } = useTheme();
+  const { previewPalette } = useTheme();
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -23,16 +23,19 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [gender, setGender] = useState<Gender | null>(null);
-  const [paletteTouched, setPaletteTouched] = useState(false);
+  const [explicitPalette, setExplicitPalette] = useState<PaletteId | null>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<'form' | 'google' | null>(null);
 
-  function handleGender(next: Gender) {
-    setGender(next);
-    // El género solo sugiere; si la persona ya eligió una paleta, se respeta.
-    if (!paletteTouched) setPalette(suggestedPalette(next));
-  }
+  // El género solo sugiere; si la persona ya eligió una paleta, se respeta.
+  const palette = draftPalette(explicitPalette, gender);
+
+  // Vista previa del borrador; se guarda en el perfil al crear la cuenta.
+  useEffect(() => {
+    previewPalette(palette);
+  }, [palette, previewPalette]);
+  useEffect(() => () => previewPalette(null), [previewPalette]);
 
   function validate(): { phone: string | null } | null {
     const next: FieldErrors = {};
@@ -108,7 +111,7 @@ export default function SignUpScreen() {
       />
       <TextField
         label="Teléfono (opcional)"
-        hint="Para iniciar sesión también con tu número."
+        hint="Alias para iniciar sesión con tu número. Aún no lo verificamos por SMS."
         value={phone}
         onChangeText={setPhone}
         error={errors.phone}
@@ -141,7 +144,7 @@ export default function SignUpScreen() {
           label="Género (opcional)"
           options={GENDER_OPTIONS}
           value={gender}
-          onChange={handleGender}
+          onChange={setGender}
         />
         <AppText variant="secondary">
           Lo usamos solo para sugerirte colores. Puedes elegir cualquier paleta y cambiarla cuando quieras.
@@ -150,10 +153,7 @@ export default function SignUpScreen() {
         <PalettePicker
           value={palette}
           suggested={suggestedPalette(gender)}
-          onChange={(next) => {
-            setPaletteTouched(true);
-            setPalette(next);
-          }}
+          onChange={setExplicitPalette}
         />
       </Card>
 

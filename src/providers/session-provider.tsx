@@ -1,15 +1,30 @@
 import type { Session } from '@supabase/supabase-js';
-import { createContext, use, useCallback, useEffect, useState, type PropsWithChildren } from 'react';
+import { createContext, use, useCallback, useEffect, useRef, useState, type PropsWithChildren } from 'react';
 
 import type { Profile, ProfileUpdate } from '@/lib/profile';
+import { loadProfile, saveProfile, type SaveProfileResult } from '@/lib/profile-api';
+import {
+  profileStateFor,
+  resolveRoute,
+  toProfileState,
+  type AppRoute,
+  type ProfileState,
+} from '@/lib/session-routing';
 import { supabase } from '@/lib/supabase';
 
 type SessionContextValue = {
   session: Session | null;
+  route: AppRoute;
+  /** Estado del perfil del usuario actual (null sin sesión). */
+  profileState: ProfileState | null;
+  /** Perfil confirmado por el servidor; null si no está cargado. */
   profile: Profile | null;
-  isLoading: boolean;
-  refreshProfile: () => Promise<void>;
-  updateProfile: (patch: ProfileUpdate) => Promise<{ error: string | null }>;
+  retryProfile: () => Promise<void>;
+  /**
+   * Guarda en el servidor y solo actualiza el estado local si se confirmó una fila.
+   * `expectedUserId` evita enviar una escritura pensada para otra sesión.
+   */
+  saveProfile: (patch: ProfileUpdate, expectedUserId?: string) => Promise<SaveProfileResult>;
   signOut: () => Promise<void>;
 };
 
@@ -23,71 +38,77 @@ export function useSession(): SessionContextValue {
   return value;
 }
 
-async function fetchProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-  if (error) {
-    console.warn('No se pudo cargar el perfil', error.message);
-    return null;
-  }
-  return data;
-}
-
-type LoadedProfile = { userId: string; profile: Profile | null };
-
 export function SessionProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [loaded, setLoaded] = useState<LoadedProfile | null>(null);
+  const [storedState, setStoredState] = useState<ProfileState | null>(null);
+
+  // Cada carga/guardado lleva un número; solo se aplica la respuesta de la petición vigente.
+  // Un cambio de sesión (incluido cerrar y volver a abrir la misma cuenta) invalida todo lo anterior.
+  const latestRequest = useRef(0);
+  const sessionGeneration = useRef(0);
+  const sessionUser = useRef<string | null>(null);
 
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       // No se llama a Supabase dentro del callback (puede bloquear el cliente);
       // la carga del perfil ocurre en el efecto de abajo.
+      const nextUser = nextSession?.user.id ?? null;
+      if (event === 'SIGNED_OUT' || nextUser !== sessionUser.current) {
+        sessionUser.current = nextUser;
+        sessionGeneration.current += 1;
+        latestRequest.current += 1;
+        setStoredState(null);
+      }
       setSession(nextSession);
       setAuthReady(true);
     });
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const userId = session?.user.id;
+  const userId = session?.user.id ?? null;
+
+  const load = useCallback(async (id: string) => {
+    const requestId = ++latestRequest.current;
+    const result = await loadProfile(id);
+    if (requestId !== latestRequest.current) return; // hay una petición o sesión más reciente
+    setStoredState(toProfileState(id, result));
+  }, []);
 
   useEffect(() => {
     if (!userId) return;
-    let cancelled = false;
-    fetchProfile(userId).then((profile) => {
-      if (!cancelled) setLoaded({ userId, profile });
-    });
+    void load(userId);
     return () => {
-      cancelled = true;
+      latestRequest.current += 1;
     };
-  }, [userId]);
+  }, [userId, load]);
 
-  // El perfil solo es válido si pertenece al usuario de la sesión actual.
-  const profileLoaded = !!userId && loaded?.userId === userId;
-  const profile = profileLoaded ? loaded.profile : null;
-  const isLoading = !authReady || (!!userId && !profileLoaded);
+  const profileState = userId ? profileStateFor(userId, storedState) : null;
+  const profile = profileState?.status === 'loaded' ? profileState.profile : null;
+  const route = resolveRoute({ authReady, userId, profileState });
 
-  const refreshProfile = useCallback(async () => {
+  const retryProfile = useCallback(async () => {
     if (!userId) return;
-    setLoaded({ userId, profile: await fetchProfile(userId) });
-  }, [userId]);
+    setStoredState({ status: 'loading', userId });
+    await load(userId);
+  }, [userId, load]);
 
-  const updateProfile = useCallback(
-    async (patch: ProfileUpdate) => {
-      if (!userId) return { error: null };
-      // Optimista: la UI (p. ej. el tema) cambia al instante; si falla, se recarga.
-      setLoaded((current) =>
-        current?.userId === userId && current.profile
-          ? { userId, profile: { ...current.profile, ...patch } }
-          : current,
-      );
-      const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
-      if (error) {
-        await refreshProfile();
+  const saveProfileForUser = useCallback(
+    async (patch: ProfileUpdate, expectedUserId?: string): Promise<SaveProfileResult> => {
+      if (!userId || profileState?.status !== 'loaded') return { ok: false, error: 'no_session' };
+      // Escrituras pedidas para otra sesión (p. ej. un reintento pendiente) no se envían.
+      if (expectedUserId && expectedUserId !== userId) return { ok: false, error: 'stale_session' };
+      const generation = sessionGeneration.current;
+      const result = await saveProfile(userId, patch);
+      if (result.ok && generation === sessionGeneration.current) {
+        latestRequest.current += 1; // una lectura en curso ya es más vieja que esta fila
+        setStoredState((current) =>
+          current?.userId === userId ? { status: 'loaded', userId, profile: result.profile } : current,
+        );
       }
-      return { error: error?.message ?? null };
+      return result;
     },
-    [userId, refreshProfile],
+    [userId, profileState?.status],
   );
 
   const signOut = useCallback(async () => {
@@ -95,7 +116,16 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   return (
-    <SessionContext value={{ session, profile, isLoading, refreshProfile, updateProfile, signOut }}>
+    <SessionContext
+      value={{
+        session,
+        route,
+        profileState,
+        profile,
+        retryProfile,
+        saveProfile: saveProfileForUser,
+        signOut,
+      }}>
       {children}
     </SessionContext>
   );

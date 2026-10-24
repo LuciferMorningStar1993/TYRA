@@ -21,7 +21,8 @@ export default function AuthCallbackScreen() {
     completeOAuthRedirect(url).finally(() => setDone(true));
   }, [url]);
 
-  if (done) return <Redirect href="/" />;
+  // Sin link que procesar (p. ej. navegación directa) no hay nada que esperar.
+  if (done || !url) return <Redirect href="/" />;
 
   return (
     <View style={[styles.center, { backgroundColor: colors.background }]}>
