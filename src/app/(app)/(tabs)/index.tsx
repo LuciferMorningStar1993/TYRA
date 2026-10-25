@@ -1,7 +1,6 @@
 import { FinanceSummaryCard } from '@/components/finance-summary-card';
-import { HealthSummaryCard } from '@/components/health-summary-card';
+import { HealthSummarySection } from '@/components/health-summary-section';
 import { AppText, Screen } from '@/components/ui';
-import { useHealthSummary } from '@/hooks/use-health-summary';
 import { useSession } from '@/providers/session-provider';
 
 function greeting(date = new Date()): string {
@@ -13,14 +12,13 @@ function greeting(date = new Date()): string {
 
 export default function HomeScreen() {
   const { profile } = useSession();
-  const health = useHealthSummary();
 
   return (
     <Screen edges={['top']}>
       <AppText variant="secondary">{greeting()}</AppText>
       <AppText variant="title">{profile?.display_name ?? 'Hola'}</AppText>
 
-      {health && <HealthSummaryCard summary={health.summary} weightKg={health.weightKg} />}
+      <HealthSummarySection />
       <FinanceSummaryCard />
     </Screen>
   );

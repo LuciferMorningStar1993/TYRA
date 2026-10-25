@@ -33,5 +33,13 @@ The app should be clear for teenagers, adults and older adults, with a modern, p
 - Write a concise, ready-to-paste Spanish correction prompt for Claude after each review.
 - Never automatically commit or push. Request approval before code modifications.
 
+## Product references per module
+When starting or reworking a module (Health, Finance, Dashboard, Profile…), review how well-regarded products in that category solve the same user problem before designing screens or data models:
+- Identify 2–4 relevant references (e.g. established weight/nutrition trackers for Health, budgeting apps for Finance) and note the patterns worth adapting: flows, empty states, how history and corrections are shown, how numbers are explained.
+- Adapt the ideas to TYRA's design system, tokens, accessibility rules, data model and audience (teenagers to older adults). Never copy names, logos, illustrations, copy or distinctive visual identity of other brands.
+- Only adopt what serves a concrete TYRA need in the current phase. Do not add features because a reference has them (KISS/YAGNI); record deferred ideas in the module's proposal instead of implementing them.
+- Health and finance explanations must keep TYRA's own policies (e.g. `HEALTH_AGE_POLICY`, `GOAL_POLICY`) and cite reliable sources (WHO, peer-reviewed formulas, official guidance), never a competitor's claims.
+- Summarize the references reviewed and the decisions taken (adopted / adapted / rejected) in the module's proposal document so reviewers can check the reasoning.
+
 ## Unknowns to discover from repository
 Actual frontend/backend frameworks, package manager, build/test commands, folder structure, database, authentication, deployment and progress completed by Claude. Document findings rather than guessing.

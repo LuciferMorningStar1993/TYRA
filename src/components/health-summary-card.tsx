@@ -1,11 +1,13 @@
 import { HeartPulse } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
 
+import { InfoHint } from '@/components/info-hint';
 import { AppText, Card } from '@/components/ui';
 import { useTheme } from '@/design/theme-provider';
 import { radius, space } from '@/design/tokens';
 import { formatNumber } from '@/lib/format';
 import { HEALTH_AGE_POLICY, type BmiCategory, type Goal, type HealthSummary } from '@/lib/health';
+import { HEALTH_HELP } from '@/lib/health-help';
 
 const BMI_LABELS: Record<BmiCategory, string> = {
   underweight: 'Bajo peso',
@@ -46,7 +48,16 @@ export function targetUnavailableMessage(summary: HealthSummary): string | null 
  * Resumen de salud. Muestra por separado el gasto estimado (descriptivo) y la meta según
  * el objetivo (recomendación), y explica cada resultado no disponible.
  */
-export function HealthSummaryCard({ summary, weightKg }: { summary: HealthSummary; weightKg: number }) {
+export function HealthSummaryCard({
+  summary,
+  weightKg,
+  weightCaption,
+}: {
+  summary: HealthSummary;
+  weightKg: number;
+  /** De qué medición sale el peso (fecha, o «fecha sin confirmar» para el peso heredado). */
+  weightCaption?: string;
+}) {
   const { colors } = useTheme();
   const { bmi, expenditure, target } = summary;
   const expenditureMessage = expenditureUnavailableMessage(summary);
@@ -90,9 +101,19 @@ export function HealthSummaryCard({ summary, weightKg }: { summary: HealthSummar
         <Metric label="Peso" value={`${formatNumber(weightKg, 1)} kg`} detail={`${summary.age} años`} />
       </View>
 
+      {weightCaption && <AppText variant="caption">{weightCaption}</AppText>}
+
       {expenditure.available && (
         <AppText variant="caption">Estimación orientativa; no sustituye la valoración de un profesional.</AppText>
       )}
+
+      {/* Ayudas solo de lo que se muestra. */}
+      <View>
+        {bmi.available && <InfoHint help={HEALTH_HELP.bmi} />}
+        {expenditure.available && <InfoHint help={HEALTH_HELP.bmr} />}
+        {expenditure.available && <InfoHint help={HEALTH_HELP.tdee} />}
+        {(target.available || targetMessage) && <InfoHint help={HEALTH_HELP.target} />}
+      </View>
     </Card>
   );
 }

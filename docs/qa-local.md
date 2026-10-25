@@ -52,7 +52,9 @@ un código; usa `npm run start:qa -- --web --port 8082` para abrir el enlace.
 **local** el caso de toma de cuenta por recuperación incompleta (enlace y código; correo y alias de
 teléfono) y controles de flujos legítimos. Requiere `supabase start` **con** `edge-runtime` y
 `mailpit` (no los excluyas con `-x`). Aborta si la URL no es local, no imprime tokens ni contraseñas
-y sale con código 1 si falla algún criterio. Se adapta a la política de registro del Supabase local (`disable_signup`). Con registro abierto
+y sale con código 1 si falla algún criterio. Registra las cuentas que crea y las borra al terminar (`finally`, también si
+falla una prueba o se interrumpe con Ctrl+C); solo borra cuentas cuyo correo generó esa misma ejecución, y si la
+limpieza falla lo informa (`FALLA  Limpieza: …`) y sale con código 1. Se adapta a la política de registro del Supabase local (`disable_signup`). Con registro abierto
 falla a propósito en 6 criterios (documenta el riesgo). Con registro cerrado por invitación
 (`[auth] enable_signup = false`, configuración actual del repo) pasa: 55 verificaciones.
 

@@ -5,7 +5,9 @@
 // B pide recuperación, verifica el enlace o el código y abandona antes de cambiar la contraseña.
 // Criterio: esa recuperación incompleta NO debe habilitar la contraseña de A, ni por correo ni por
 // el alias de teléfono. Además, controles positivos para no romper los flujos legítimos.
-// No imprime tokens ni contraseñas. Sale con código 1 si algún criterio falla.
+// No imprime tokens ni contraseñas. Sale con código 1 si algún criterio falla o si no pudo limpiar.
+// Limpieza: registra las cuentas que crea esta ejecución y las borra al final (finally), aunque
+// falle una prueba. Solo borra cuentas cuyo correo generó esta misma ejecución.
 //
 // Se adapta a la política de registro del Supabase local (/auth/v1/settings → disable_signup):
 // - Registro abierto: la cuenta pendiente la crea A con signUp (contraseña elegida por A).
@@ -42,7 +44,19 @@ const plainClient = () => createClient(url, publishableKey, { auth: { persistSes
 const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
 const secret = () => `Pw${randomBytes(6).toString('hex')}9`;
-const uniqueEmail = (tag) => `${tag}-${Date.now()}-${randomBytes(2).toString('hex')}@tyra.test`;
+// Cuentas de ESTA ejecución: IDs devueltos al crearlas y correos generados (por si una prueba
+// fallida crea una cuenta inesperada). Solo esas se borran al final.
+const createdIds = new Set();
+const generatedEmails = new Set();
+const track = (id) => {
+  if (id) createdIds.add(id);
+  return id;
+};
+const uniqueEmail = (tag) => {
+  const email = `${tag}-${Date.now()}-${randomBytes(2).toString('hex')}@tyra.test`;
+  generatedEmails.add(email);
+  return email;
+};
 const uniquePhone = () => `+52559${String(randomBytes(4).readUInt32BE() % 10_000_000).padStart(7, '0')}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -106,7 +120,7 @@ const signupClosed = settings.disable_signup === true;
 async function invite(email) {
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo: REDIRECT });
   if (error) throw new Error(`No se pudo invitar (${email}): ${error.code ?? error.message}`);
-  return data.user.id;
+  return track(data.user.id);
 }
 
 /** token_hash del enlace del correo de invitación (plantilla supabase/templates/invite.html). */
@@ -153,7 +167,7 @@ async function attackerSignsUp(tag) {
     options: { emailRedirectTo: REDIRECT, data: { display_name: 'A', phone } },
   });
   if (error || !data.user) throw new Error(`No se pudo crear la cuenta de A (${tag}): ${error?.code ?? error?.message}`);
-  return { email, phone, passwordA, userId: data.user.id };
+  return { email, phone, passwordA, userId: track(data.user.id) };
 }
 
 async function attackerCannotLogIn(label, account) {
@@ -260,6 +274,7 @@ async function casePhoneAliasOwnership() {
   const email = uniqueEmail('alias');
   const phoneInMetadata = uniquePhone();
   const { data } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo: REDIRECT, data: { phone: phoneInMetadata } });
+  track(data?.user?.id);
   const { data: row } = await admin.from('profiles').select('phone').eq('id', data.user.id).single();
   check(`${label}: el teléfono de los metadatos del alta NO se copia`, row?.phone === null, String(row?.phone));
 
@@ -314,7 +329,12 @@ async function controlOwnSignupConfirmed() {
   const label = 'Control: registro propio confirmado con su enlace';
   const email = uniqueEmail('propio');
   const password = secret();
-  const { error: signUpError } = await appClient().auth.signUp({ email, password, options: { emailRedirectTo: REDIRECT } });
+  const { data: signUpData, error: signUpError } = await appClient().auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: REDIRECT },
+  });
+  track(signUpData?.user?.id);
   if (signupClosed) {
     // Con registro cerrado, el alta directa por la API (con o sin contraseña) se rechaza en el servidor.
     check(`${label}: con registro cerrado, signUp por la API se rechaza`, !!signUpError, signUpError?.code ?? 'aceptado');
@@ -343,7 +363,8 @@ async function controlOwnSignupWithPendingRecovery() {
     check(`${label} (invitación): contraseña utilizable solo tras verificar`, await hasUsablePassword(userId));
     return;
   }
-  await appClient().auth.signUp({ email, password, options: { emailRedirectTo: REDIRECT } });
+  const { data: signUpData } = await appClient().auth.signUp({ email, password, options: { emailRedirectTo: REDIRECT } });
+  track(signUpData?.user?.id);
   await admin.auth.admin.generateLink({ type: 'recovery', email }); // deja un token de recuperación pendiente
   await fetch(await latestLink(email, 'signup'), { redirect: 'manual' });
   const login = await emailLoginWorks(email, password);
@@ -354,7 +375,8 @@ async function controlConfirmedUserAbandonsRecovery() {
   const label = 'Control: cuenta ya confirmada abandona una recuperación';
   const email = uniqueEmail('confirmada');
   const password = secret();
-  await admin.auth.admin.createUser({ email, password, email_confirm: true });
+  const { data: created } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+  track(created?.user?.id);
   const deviceB = appClient();
   await deviceB.auth.resetPasswordForEmail(email, { redirectTo: REDIRECT });
   await fetch(await latestLink(email, 'recovery'), { redirect: 'manual' });
@@ -362,23 +384,95 @@ async function controlConfirmedUserAbandonsRecovery() {
   check(`${label}: su contraseña sigue funcionando`, login.works, login.code);
 }
 
-console.log(`Supabase local: ${url} · registro ${signupClosed ? 'CERRADO (por invitación)' : 'ABIERTO'}\n`);
-await Promise.all([caseLinkVerifiedNoExchange(), caseLinkExchangedThenAbandoned(), caseCodeVerifiedThenAbandoned()]);
-if (signupClosed) {
-  await Promise.all([
-    caseInviteVerifiedThenAbandoned(),
-    caseInviteReusedAndExpired(),
-    caseInviteAbandonedThenRecovery(),
-    casePhoneAliasOwnership(),
-    controlOwnerCompletesInviteAndPhoneAlias(),
-  ]);
+// --- Limpieza -------------------------------------------------------------------------------
+
+/** IDs de las cuentas con correos generados por esta ejecución (consulta exacta en la base LOCAL). */
+function idsForGeneratedEmails() {
+  if (generatedEmails.size === 0) return [];
+  // Los correos los genera este script (letras, dígitos, guiones y @tyra.test): no llevan comillas.
+  const list = [...generatedEmails].map((email) => `'${email}'`).join(',');
+  const out = spawnSync('docker', ['exec', '-i', 'supabase_db_TYRA', 'psql', '-U', 'postgres', '-At'], {
+    input: `select id from auth.users where email in (${list});`,
+    encoding: 'utf8',
+  });
+  if (out.status !== 0) throw new Error(`no se pudieron buscar las cuentas por correo (psql ${out.status})`);
+  return out.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
 }
-await Promise.all([
-  controlRecoveryCompleted(),
-  controlOwnSignupConfirmed(),
-  controlOwnSignupWithPendingRecovery(),
-  controlConfirmedUserAbandonsRecovery(),
-]);
-console.log('NO EJECUTADA  Google: requiere credenciales OAuth reales; se valida en R5 (ver docs/email-confirmation.md).');
-console.log(`\n${failures === 0 ? 'Todo pasa.' : `${failures} verificación(es) fallaron.`}`);
-process.exit(failures === 0 ? 0 : 1);
+
+/** Borra solo cuentas de esta ejecución. Devuelve true si no hubo fallos. */
+async function cleanup() {
+  const problems = [];
+  let ids = [...createdIds];
+  try {
+    ids = [...new Set([...ids, ...idsForGeneratedEmails()])];
+  } catch (error) {
+    problems.push(error.message);
+  }
+  let deleted = 0;
+  for (const id of ids) {
+    const { data, error } = await admin.auth.admin.getUserById(id);
+    if (error?.status === 404 || (!error && !data?.user)) continue; // ya no existe
+    if (error) {
+      problems.push(`${id}: ${error.code ?? error.message}`);
+      continue;
+    }
+    if (!generatedEmails.has(data.user.email)) {
+      problems.push(`${id}: no la creó esta ejecución; no se borra`);
+      continue;
+    }
+    const result = await admin.auth.admin.deleteUser(id);
+    if (result.error) problems.push(`${id}: ${result.error.code ?? result.error.message}`);
+    else deleted += 1;
+  }
+  console.log(`Limpieza: ${deleted} cuenta(s) de esta ejecución eliminada(s).`);
+  for (const problem of problems) console.log(`FALLA  Limpieza: ${problem}`);
+  return problems.length === 0;
+}
+
+/** Ejecuta casos en paralelo y espera a TODOS (un error no deja casos creando cuentas tras la limpieza). */
+async function runAll(cases) {
+  const results = await Promise.allSettled(cases.map((run) => run()));
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      check('Caso interrumpido por un error', false, result.reason?.message ?? String(result.reason));
+    }
+  }
+}
+
+let interrupted = false;
+process.once('SIGINT', async () => {
+  interrupted = true;
+  console.log('\nInterrumpida: limpiando las cuentas de esta ejecución…');
+  const cleaned = await cleanup();
+  process.exit(cleaned ? 130 : 1);
+});
+
+let cleaned = false;
+try {
+  console.log(`Supabase local: ${url} · registro ${signupClosed ? 'CERRADO (por invitación)' : 'ABIERTO'}\n`);
+  await runAll([caseLinkVerifiedNoExchange, caseLinkExchangedThenAbandoned, caseCodeVerifiedThenAbandoned]);
+  if (signupClosed) {
+    await runAll([
+      caseInviteVerifiedThenAbandoned,
+      caseInviteReusedAndExpired,
+      caseInviteAbandonedThenRecovery,
+      casePhoneAliasOwnership,
+      controlOwnerCompletesInviteAndPhoneAlias,
+    ]);
+  }
+  await runAll([
+    controlRecoveryCompleted,
+    controlOwnSignupConfirmed,
+    controlOwnSignupWithPendingRecovery,
+    controlConfirmedUserAbandonsRecovery,
+  ]);
+  console.log('NO EJECUTADA  Google: requiere credenciales OAuth reales; se valida en R5 (ver docs/email-confirmation.md).');
+} catch (error) {
+  check('Regresión interrumpida por un error', false, error?.message ?? String(error));
+} finally {
+  if (!interrupted) cleaned = await cleanup();
+}
+if (!interrupted) {
+  console.log(`\n${failures === 0 ? 'Todo pasa.' : `${failures} verificación(es) fallaron.`}${cleaned ? '' : ' La limpieza tuvo fallos.'}`);
+  process.exit(failures === 0 && cleaned ? 0 : 1);
+}
