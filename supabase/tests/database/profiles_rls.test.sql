@@ -5,7 +5,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(10);
+select plan(12);
 
 -- Dos usuarios; el trigger handle_new_user crea su perfil.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
@@ -20,6 +20,11 @@ select is(
     '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b')),
   2::bigint,
   'el trigger crea un perfil por usuario');
+
+select is(
+  (select phone from public.profiles where id = '00000000-0000-0000-0000-00000000000a'),
+  null,
+  'el alta NO copia el teléfono de los metadatos (alias solo desde Perfil)');
 
 -- Actuar como el usuario A.
 set local role authenticated;
@@ -38,6 +43,11 @@ select isnt_empty(
   $$update public.profiles set display_name = 'A editado'
     where id = '00000000-0000-0000-0000-00000000000a' returning id$$,
   'A puede actualizar su perfil (update devuelve la fila)');
+
+select isnt_empty(
+  $$update public.profiles set phone = '+525500000001'
+    where id = '00000000-0000-0000-0000-00000000000a' returning id$$,
+  'A puede fijar su propio alias de teléfono');
 
 select is_empty(
   $$update public.profiles set display_name = 'hackeado'

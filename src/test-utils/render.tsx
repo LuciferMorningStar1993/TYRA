@@ -4,13 +4,39 @@ import { createRoot, type Root, type TestInstance } from 'test-renderer';
 
 import type { Profile } from '@/lib/profile';
 
+const mountedRoots = new Set<Root>();
+
 export async function render(element: ReactElement): Promise<Root> {
   const root = createRoot();
+  mountedRoots.add(root);
   await act(async () => {
     root.render(element);
   });
   return root;
 }
+
+/** Desmonta un árbol a mitad de prueba (p. ej. simular cerrar la app). */
+export async function unmount(root: Root): Promise<void> {
+  mountedRoots.delete(root);
+  await act(async () => {
+    root.unmount();
+  });
+}
+
+/**
+ * Desmonta todos los árboles renderizados. Al desmontar, los efectos limpian sus
+ * temporizadores y suscripciones, así nada sigue corriendo después de cada prueba.
+ */
+export async function cleanup(): Promise<void> {
+  const roots = [...mountedRoots];
+  mountedRoots.clear();
+  await act(async () => {
+    for (const root of roots) root.unmount();
+  });
+}
+
+// Limpieza automática tras cada prueba, como Testing Library (este módulo solo se importa en pruebas).
+afterEach(cleanup);
 
 /**
  * Captura el valor de un hook (p. ej. useSession) para hacer aserciones fuera de React.

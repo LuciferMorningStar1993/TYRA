@@ -24,15 +24,19 @@ export function profileStateFor(userId: string, stored: ProfileState | null): Pr
   return stored?.userId === userId ? stored : { status: 'loading', userId };
 }
 
-export type AppRoute = 'starting' | 'auth' | 'profile-status' | 'onboarding' | 'app';
+export type AppRoute = 'starting' | 'auth' | 'reset-password' | 'profile-status' | 'onboarding' | 'app';
 
 export function resolveRoute(params: {
   authReady: boolean;
   userId: string | null;
   profileState: ProfileState | null;
+  /** Usuario cuya sesión actual viene de un enlace de recuperación (evento PASSWORD_RECOVERY). */
+  recoveryUserId?: string | null;
 }): AppRoute {
   if (!params.authReady) return 'starting';
   if (!params.userId) return 'auth';
+  // Una sesión de recuperación solo puede fijar la contraseña nueva antes de usar la app.
+  if (params.recoveryUserId === params.userId) return 'reset-password';
   const state = profileStateFor(params.userId, params.profileState);
   if (state.status !== 'loaded') return 'profile-status';
   return state.profile.onboarded_at ? 'app' : 'onboarding';

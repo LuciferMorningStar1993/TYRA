@@ -54,7 +54,9 @@
     "check:app": "npm run typecheck && npm run lint && npm test",
     "check:functions": "cd supabase/functions/phone-login && deno check index.ts && deno lint index.ts",
     "test:db": "supabase test db --local",
-    "start:qa": "bash scripts/start-qa-local.sh"
+    "start:qa": "bash scripts/start-qa-local.sh",
+    "test:auth-local": "node scripts/local-auth-regression.mjs",
+    "invite:local": "node scripts/invite-local.mjs"
   },
   "private": true,
   "jest": {

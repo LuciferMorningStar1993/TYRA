@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, use, useCallback, useEffect, useRef, useState, type PropsWithChildren } from 'react';
 
+import { acceptInvite as acceptInviteRequest, type InviteAcceptance } from '@/lib/auth';
 import type { Profile, ProfileUpdate } from '@/lib/profile';
 import { loadProfile, saveProfile, type SaveProfileResult } from '@/lib/profile-api';
 import {
@@ -12,6 +13,8 @@ import {
 } from '@/lib/session-routing';
 import { supabase } from '@/lib/supabase';
 
+export type PasswordSetupMode = 'recovery' | 'invite';
+
 type SessionContextValue = {
   session: Session | null;
   route: AppRoute;
@@ -20,6 +23,12 @@ type SessionContextValue = {
   /** Perfil confirmado por el servidor; null si no está cargado. */
   profile: Profile | null;
   retryProfile: () => Promise<void>;
+  /** Por qué la sesión actual debe crear contraseña: recuperación o invitación recién aceptada. */
+  passwordSetupMode: PasswordSetupMode | null;
+  /** Acepta una invitación (enlace o código) y, si se verifica, pide crear la contraseña. */
+  acceptInvite: (input: Parameters<typeof acceptInviteRequest>[0]) => Promise<InviteAcceptance>;
+  /** Termina el modo de recuperación/invitación (tras fijar la contraseña). */
+  completeRecovery: () => void;
   /**
    * Guarda en el servidor y solo actualiza el estado local si se confirmó una fila.
    * `expectedUserId` evita enviar una escritura pensada para otra sesión.
@@ -42,6 +51,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [storedState, setStoredState] = useState<ProfileState | null>(null);
+  // Solo en memoria: la pantalla de contraseña existe únicamente justo después de abrir un enlace
+  // de recuperación o aceptar una invitación en esta app. Recargar o cerrar sesión la termina.
+  const [passwordSetup, setPasswordSetup] = useState<{ userId: string; mode: PasswordSetupMode } | null>(null);
+  // La invitación se marca en el mismo evento SIGNED_IN que produce verifyOtp (sin carreras).
+  const pendingInvite = useRef(false);
 
   // Cada carga/guardado lleva un número; solo se aplica la respuesta de la petición vigente.
   // Un cambio de sesión (incluido cerrar y volver a abrir la misma cuenta) invalida todo lo anterior.
@@ -59,6 +73,12 @@ export function SessionProvider({ children }: PropsWithChildren) {
         sessionGeneration.current += 1;
         latestRequest.current += 1;
         setStoredState(null);
+        setPasswordSetup(null);
+      }
+      if (event === 'PASSWORD_RECOVERY' && nextUser) setPasswordSetup({ userId: nextUser, mode: 'recovery' });
+      if (event === 'SIGNED_IN' && nextUser && pendingInvite.current) {
+        pendingInvite.current = false;
+        setPasswordSetup({ userId: nextUser, mode: 'invite' });
       }
       setSession(nextSession);
       setAuthReady(true);
@@ -85,7 +105,17 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const profileState = userId ? profileStateFor(userId, storedState) : null;
   const profile = profileState?.status === 'loaded' ? profileState.profile : null;
-  const route = resolveRoute({ authReady, userId, profileState });
+  const setupForCurrentUser = passwordSetup?.userId === userId ? passwordSetup : null;
+  const route = resolveRoute({ authReady, userId, profileState, recoveryUserId: setupForCurrentUser?.userId ?? null });
+
+  const completeRecovery = useCallback(() => setPasswordSetup(null), []);
+
+  const acceptInvite = useCallback(async (input: Parameters<typeof acceptInviteRequest>[0]) => {
+    pendingInvite.current = true;
+    const result = await acceptInviteRequest(input);
+    if (result.status !== 'accepted') pendingInvite.current = false;
+    return result;
+  }, []);
 
   const retryProfile = useCallback(async () => {
     if (!userId) return;
@@ -123,6 +153,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
         profileState,
         profile,
         retryProfile,
+        passwordSetupMode: setupForCurrentUser?.mode ?? null,
+        acceptInvite,
+        completeRecovery,
         saveProfile: saveProfileForUser,
         signOut,
       }}>

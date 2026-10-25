@@ -15,6 +15,8 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [identifierError, setIdentifierError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Correo pendiente de confirmar (solo si se inició con correo). */
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState<'password' | 'google' | null>(null);
 
   async function handleSignIn() {
@@ -25,10 +27,12 @@ export default function SignInScreen() {
     }
     setIdentifierError(null);
     setError(null);
+    setUnconfirmedEmail(null);
     setLoading('password');
     const result = await signInWithPassword(parsed, password);
     setLoading(null);
     setError(result.error);
+    if (result.needsEmailConfirmation && parsed.kind === 'email') setUnconfirmedEmail(parsed.email);
     // Si fue exitoso, el layout raíz redirige según la sesión.
   }
 
@@ -72,6 +76,25 @@ export default function SignInScreen() {
           {error}
         </AppText>
       )}
+      {unconfirmedEmail && (
+        <Button
+          title="Reenviar enlace de confirmación"
+          variant="outline"
+          onPress={() => router.push({ pathname: '/check-email', params: { email: unconfirmedEmail } })}
+        />
+      )}
+
+      <Button
+        title="¿Olvidaste tu contraseña?"
+        variant="ghost"
+        onPress={() => {
+          const parsed = parseIdentifier(identifier);
+          router.push({
+            pathname: '/forgot-password',
+            params: parsed?.kind === 'email' ? { email: parsed.email } : {},
+          });
+        }}
+      />
 
       <Button
         title="Iniciar sesión"
@@ -94,9 +117,10 @@ export default function SignInScreen() {
 
       <View style={styles.footer}>
         <AppText variant="body" tone="secondary">
-          ¿No tienes cuenta?
+          ¿Te invitaron a TYRA?
         </AppText>
-        <Button title="Crear cuenta" variant="ghost" onPress={() => router.push('/sign-up')} />
+        <Button title="Tengo un código de invitación" variant="ghost" onPress={() => router.push('/accept-invite')} />
+        <Button title="¿Cómo obtengo una cuenta?" variant="ghost" onPress={() => router.push('/sign-up')} />
       </View>
     </Screen>
   );

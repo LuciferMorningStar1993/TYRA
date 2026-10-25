@@ -1,0 +1,8 @@
+<h2>Te invitaron a TYRA</h2>
+<p>Para activar tu cuenta, confirma que este correo es tuyo y después crea tu contraseña.</p>
+<p>
+  <a href="{{ if eq .RedirectTo .SiteURL }}{{ .SiteURL }}auth/callback{{ else }}{{ .RedirectTo }}{{ end }}?token_hash={{ .TokenHash }}&type=invite">Aceptar invitación</a>
+</p>
+<p>Si el enlace no abre la app, entra a TYRA → «Tengo un código de invitación» y escribe tu correo y este código:</p>
+<p><strong>{{ .Token }}</strong></p>
+<p>La invitación se puede usar una sola vez y vence. Si no esperabas este correo, ignóralo.</p>

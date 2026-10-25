@@ -34,6 +34,28 @@ npm run start:qa        # Expo en modo QA local (agrega --web, --ios, etc. si qu
 Expo carga `.env.local` (remoto) automáticamente. Usar nombres que no existen en ese archivo evita
 que un valor remoto se cuele en una sesión de QA.
 
+## Correos en local
+
+Con confirmación de correo activa, los correos de Auth llegan a **Mailpit**
+(`http://127.0.0.1:55324`). No excluyas `mailpit` al hacer `supabase start -x …`.
+Para abrir el enlace en web usa el puerto con redirección permitida: `npm run start:qa -- --web --port 8082`.
+
+## Invitaciones en local
+
+Con el registro cerrado, las cuentas de prueba se crean con `npm run invite:local -- correo@tyra.test`
+(solo local). El correo llega a Mailpit con un enlace (`/auth/callback?token_hash=…&type=invite`) y
+un código; usa `npm run start:qa -- --web --port 8082` para abrir el enlace.
+
+## Regresión de Auth (solo local)
+
+`npm run test:auth-local` (`scripts/local-auth-regression.mjs`) recorre contra la API de Supabase
+**local** el caso de toma de cuenta por recuperación incompleta (enlace y código; correo y alias de
+teléfono) y controles de flujos legítimos. Requiere `supabase start` **con** `edge-runtime` y
+`mailpit` (no los excluyas con `-x`). Aborta si la URL no es local, no imprime tokens ni contraseñas
+y sale con código 1 si falla algún criterio. Se adapta a la política de registro del Supabase local (`disable_signup`). Con registro abierto
+falla a propósito en 6 criterios (documenta el riesgo). Con registro cerrado por invitación
+(`[auth] enable_signup = false`, configuración actual del repo) pasa: 55 verificaciones.
+
 ## Pruebas SQL (pgTAP)
 
 `npm run test:db` corre `supabase test db --local`: solo contra la base local y con autorización.

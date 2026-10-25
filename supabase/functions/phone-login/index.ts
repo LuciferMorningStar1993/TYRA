@@ -37,6 +37,10 @@ export default {
     if (!email) return INVALID_CREDENTIALS.clone();
 
     const { data, error } = await ctx.supabase.auth.signInWithPassword({ email, password });
+    // Contraseña correcta pero correo sin confirmar: se avisa sin revelar el correo.
+    if (error?.code === "email_not_confirmed") {
+      return Response.json({ error: "email_not_confirmed" }, { status: 403 });
+    }
     if (error || !data.session) return INVALID_CREDENTIALS.clone();
 
     return Response.json({

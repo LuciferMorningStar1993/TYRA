@@ -5,7 +5,7 @@ import { loadProfile, saveProfile } from '@/lib/profile-api';
 import { SessionProvider } from '@/providers/session-provider';
 import { emitAuth, resetFakeAuth, sessionFor } from '@/test-utils/fake-supabase';
 import { installMemoryStorage, type MemoryStorage } from '@/test-utils/memory-storage';
-import { createProbe, deferred, flush, profileFixture, render } from '@/test-utils/render';
+import { createProbe, deferred, flush, profileFixture, render, unmount } from '@/test-utils/render';
 
 import { APPEARANCE_SAVE_ERROR, ThemeProvider, useTheme } from './theme-provider';
 import { readPendingAppearance } from './theme-preferences';
@@ -83,7 +83,7 @@ it('fallo + logout + recarga: conserva la elección original y la reintenta', as
   expect(theme.value.palette).toBe('aurora');
 
   await signOut();
-  await act(async () => app.unmount());
+  await unmount(app);
 
   // Recarga: el servidor sigue con "indigo", pero la intención pendiente gana y se reenvía.
   saveMock.mockImplementation(async (userId, patch) => savedRow(userId!, patch));
@@ -100,7 +100,7 @@ it('cerrar la app con la petición en curso permite recuperar la intención', as
   await signIn('user-a', { theme_palette: 'indigo' });
   saveMock.mockReturnValueOnce(new Promise<SaveProfileResult>(() => {})); // nunca responde
   await act(async () => theme.value.setMode('dark'));
-  await act(async () => app.unmount());
+  await unmount(app);
 
   expect(readPendingAppearance('user-a')).toMatchObject({ palette: 'indigo', mode: 'dark' });
 

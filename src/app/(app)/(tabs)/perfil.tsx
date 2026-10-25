@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { LogOut, Palette } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
 
+import { PhoneAliasCard } from '@/components/phone-alias-card';
 import { AppText, Card, ListItem, Screen } from '@/components/ui';
 import { decorative } from '@/design/a11y';
 import { PALETTES } from '@/design/palettes';
@@ -30,10 +31,12 @@ export default function ProfileScreen() {
           <View style={styles.flex}>
             <AppText variant="cardTitle">{name}</AppText>
             {session?.user.email && <AppText variant="secondary">{session.user.email}</AppText>}
-            {profile?.phone && <AppText variant="secondary">{profile.phone}</AppText>}
+            {profile?.phone && <AppText variant="secondary">{profile.phone} (alias no verificado)</AppText>}
           </View>
         </View>
       </Card>
+
+      <PhoneAliasCard />
 
       <AppText variant="label">Configuración</AppText>
       <Card>

@@ -26,6 +26,10 @@ export const supabase = createClient<Database>(supabaseConfig.url, supabaseConfi
     persistSession: true,
     detectSessionInUrl: false,
     flowType: 'pkce',
+    // Agrega `sb_flow_id` a los redirects (registro, reenvío, Google) para que el callback use el
+    // verificador PKCE de SU flujo aunque haya varios en curso. Requiere que la lista de
+    // redirecciones de config.toml admita `?sb_flow_id=*`.
+    experimental: { appendPkceFlowIdToRedirects: true },
   },
 });
 

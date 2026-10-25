@@ -54,6 +54,11 @@ function RootNavigator() {
         <Stack.Screen name="onboarding" />
       </Stack.Protected>
 
+      {/* Sesión abierta con un enlace de recuperación: solo puede fijar la contraseña nueva. */}
+      <Stack.Protected guard={route === 'reset-password'}>
+        <Stack.Screen name="reset-password" />
+      </Stack.Protected>
+
       {/* Cargando, sin perfil o error recuperable: nunca se manda al onboarding por un fallo de red. */}
       <Stack.Protected guard={route === 'profile-status'}>
         <Stack.Screen name="profile-status" />
@@ -62,6 +67,9 @@ function RootNavigator() {
       <Stack.Protected guard={route === 'auth' || route === 'starting'}>
         <Stack.Screen name="sign-in" />
         <Stack.Screen name="sign-up" />
+        <Stack.Screen name="check-email" />
+        <Stack.Screen name="forgot-password" />
+        <Stack.Screen name="accept-invite" />
         {/* Destino del redirect de Google; con guard para que nunca sea la pantalla "por defecto". */}
         <Stack.Screen name="auth/callback" />
       </Stack.Protected>

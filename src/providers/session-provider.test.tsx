@@ -1,6 +1,7 @@
 import { act } from 'react';
 
 import type { LoadProfileResult, SaveProfileResult } from '@/lib/profile-api';
+import { acceptInvite } from '@/lib/auth';
 import { loadProfile, saveProfile } from '@/lib/profile-api';
 import { emitAuth, resetFakeAuth, sessionFor } from '@/test-utils/fake-supabase';
 import { createProbe, deferred, flush, profileFixture, render } from '@/test-utils/render';
@@ -9,6 +10,8 @@ import { SessionProvider, useSession } from './session-provider';
 
 jest.mock('@/lib/supabase', () => jest.requireActual('@/test-utils/fake-supabase'));
 jest.mock('@/lib/profile-api', () => ({ loadProfile: jest.fn(), saveProfile: jest.fn() }));
+// acceptInvite real llama a verifyOtp; aquí se simula: un acierto produce el SIGNED_IN de Auth.
+jest.mock('@/lib/auth', () => ({ acceptInvite: jest.fn() }));
 
 const loadMock = jest.mocked(loadProfile);
 const saveMock = jest.mocked(saveProfile);
@@ -191,6 +194,99 @@ describe('SessionProvider: guardado confirmado por el servidor', () => {
     });
 
     expect(session.value.profile?.display_name).toBe('Beto');
+    expect(session.value.route).toBe('onboarding');
+  });
+});
+
+describe('SessionProvider: sesión de recuperación', () => {
+  async function recoveredUser(userId = 'user-a') {
+    loadMock.mockResolvedValueOnce(loaded({ id: userId, onboarded_at: '2026-10-24T10:00:00Z' }));
+    await renderSession();
+    await act(async () => emitAuth('PASSWORD_RECOVERY', sessionFor(userId)));
+    await flush();
+  }
+
+  it('PASSWORD_RECOVERY lleva a la contraseña nueva aunque el perfil esté completo', async () => {
+    await recoveredUser();
+    expect(session.value.route).toBe('reset-password');
+  });
+
+  it('al terminar la recuperación sigue la ruta normal', async () => {
+    await recoveredUser();
+    await act(async () => session.value.completeRecovery());
+    expect(session.value.route).toBe('app');
+  });
+
+  it('cerrar sesión termina la recuperación; volver a entrar normal no la reactiva', async () => {
+    await recoveredUser();
+    await signOut();
+    loadMock.mockResolvedValueOnce(loaded({ onboarded_at: '2026-10-24T10:00:00Z' }));
+    await signIn('user-a');
+    await flush();
+    expect(session.value.route).toBe('app');
+  });
+
+  it('otro usuario no hereda la recuperación', async () => {
+    await recoveredUser('user-a');
+    loadMock.mockResolvedValueOnce(loaded({ id: 'user-b', onboarded_at: '2026-10-24T10:00:00Z' }));
+    await signIn('user-b');
+    await flush();
+    expect(session.value.route).toBe('app');
+  });
+
+  it('un inicio de sesión normal nunca abre la pantalla de contraseña nueva', async () => {
+    loadMock.mockResolvedValueOnce(loaded({ onboarded_at: '2026-10-24T10:00:00Z' }));
+    await renderSession();
+    await signIn('user-a');
+    await flush();
+    expect(session.value.route).toBe('app');
+  });
+});
+
+describe('SessionProvider: invitación aceptada', () => {
+  async function rendered() {
+    loadMock.mockResolvedValue(loaded({ id: 'user-inv', onboarded_at: null }));
+    await renderSession();
+    await signOut();
+  }
+
+  it('aceptar la invitación lleva a crear la contraseña (modo invite)', async () => {
+    jest.mocked(acceptInvite).mockImplementationOnce(async () => {
+      emitAuth('SIGNED_IN', sessionFor('user-inv'));
+      return { status: 'accepted' };
+    });
+    await rendered();
+    await act(async () => {
+      await session.value.acceptInvite({ tokenHash: 'th' });
+    });
+    await flush();
+    expect(session.value.route).toBe('reset-password');
+    expect(session.value.passwordSetupMode).toBe('invite');
+  });
+
+  it('una invitación rechazada no marca nada; un inicio normal posterior no pide contraseña', async () => {
+    jest.mocked(acceptInvite).mockResolvedValueOnce({ status: 'error', reason: 'expired', message: 'x' });
+    await rendered();
+    await act(async () => {
+      await session.value.acceptInvite({ tokenHash: 'th' });
+    });
+    await signIn('user-inv');
+    await flush();
+    expect(session.value.route).toBe('onboarding');
+    expect(session.value.passwordSetupMode).toBeNull();
+  });
+
+  it('tras crear la contraseña sigue la ruta normal', async () => {
+    jest.mocked(acceptInvite).mockImplementationOnce(async () => {
+      emitAuth('SIGNED_IN', sessionFor('user-inv'));
+      return { status: 'accepted' };
+    });
+    await rendered();
+    await act(async () => {
+      await session.value.acceptInvite({ tokenHash: 'th' });
+    });
+    await flush();
+    await act(async () => session.value.completeRecovery());
     expect(session.value.route).toBe('onboarding');
   });
 });

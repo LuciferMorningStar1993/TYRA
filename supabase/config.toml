@@ -161,8 +161,19 @@ site_url = "tyra://"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-# tyra:// = app instalada (dev build / EAS); exp:// = Expo Go en desarrollo
-additional_redirect_urls = ["tyra://**", "exp://**"]
+# Destinos de los enlaces de Auth (confirmación de correo y Google), todos en /auth/callback:
+# - tyra://auth/callback: development builds y app instalada (aceptación móvil).
+# - http://localhost:8081|8082/auth/callback: web en desarrollo y QA local (npm run start:qa).
+# Cada uno admite solo la variante con `?sb_flow_id=<id>` (correlación de flujos PKCE, ver
+# src/lib/supabase.ts); `*` no cruza "/" ni ".". Expo Go (exp://) ya no se admite para Auth.
+additional_redirect_urls = [
+  "tyra://auth/callback",
+  "tyra://auth/callback?sb_flow_id=*",
+  "http://localhost:8081/auth/callback",
+  "http://localhost:8081/auth/callback?sb_flow_id=*",
+  "http://localhost:8082/auth/callback",
+  "http://localhost:8082/auth/callback?sb_flow_id=*",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -175,7 +186,11 @@ enable_refresh_token_rotation = true
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
-enable_signup = true
+# TYRA: registro CERRADO. Solo un administrador crea cuentas por invitación (Dashboard o
+# scripts/invite-local.mjs en local); signUp, crear cuenta por código/enlace y Google para correos
+# sin cuenta fallan con `signup_disabled`. Ojo: [auth.email] enable_signup debe seguir en true
+# (apagarlo deshabilita todo el proveedor de correo, incluido el login). Ver docs/email-confirmation.md.
+enable_signup = false
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
@@ -225,7 +240,9 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+# TYRA: activado. Ojo: no acredita la propiedad de cuentas creadas antes con autoconfirmación
+# (ver docs/email-confirmation.md).
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
@@ -235,15 +252,29 @@ otp_length = 8
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Use a production-ready SMTP server
+# SMTP propio: propuesta Gmail + contraseña de aplicación en una cuenta DEDICADA a TYRA
+# (ver docs/email-confirmation.md). Desactivado hasta aprobar R1.
+# La contraseña de aplicación va en supabase/.env (ignorado por git) o en el dashboard; nunca aquí.
 # [auth.email.smtp]
 # enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# host = "smtp.gmail.com"
+# port = 465
+# user = "<cuenta-dedicada>@gmail.com"
+# pass = "env(SUPABASE_AUTH_SMTP_PASS)"
+# admin_email = "<cuenta-dedicada>@gmail.com"
+# sender_name = "TYRA"
+
+[auth.email.template.confirmation]
+subject = "Confirma tu correo en TYRA"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Crea una contraseña nueva en TYRA"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.invite]
+subject = "Te invitaron a TYRA"
+content_path = "./supabase/templates/invite.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
@@ -323,7 +354,8 @@ max_frequency = "5s"
 # `discord`, `facebook`, `github`, `gitlab`, `google`, `keycloak`, `linkedin_oidc`, `notion`, `twitch`,
 # `twitter`, `x`, `slack`, `spotify`, `workos`, `zoom`.
 [auth.external.google]
-# Se habilita al tener el OAuth Client (tipo Web) de Google Cloud; ver docs/auth.md.
+# Se habilita al tener el OAuth Client (tipo Web) de Google Cloud; ver docs/email-confirmation.md
+# (pasos remotos) y CLAUDE.md. Requiere confirmación de correo activa antes de habilitarlo.
 enabled = false
 client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"

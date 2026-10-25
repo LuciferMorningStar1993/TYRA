@@ -43,9 +43,12 @@ Expo SDK 58 + Expo Router (rutas en `src/app/`) + TypeScript + Supabase (Auth, P
 
 ## Autenticación
 
-- Correo/teléfono + contraseña y Google (OAuth + PKCE). Configuración de Auth como código en `supabase/config.toml`.
-- El teléfono es un **alias de inicio de sesión no verificado** (Edge Function `phone-login`); verificarlo por SMS requiere un proveedor de pago y aprobación.
-- Activar Google requiere crear un OAuth Client (Web) en Google Cloud y pegarlo en Supabase; después poner `[auth.external.google] enabled = true` en `config.toml`.
+- **Registro cerrado por invitación** (`[auth] enable_signup = false`): solo el administrador crea cuentas (Dashboard; en local `npm run invite:local`). Nunca credenciales administrativas en la app ni endpoints públicos de invitación. Aceptar = `verifyOtp` tipo `invite` al pulsar un botón (abrir el enlace no consume el token) → «Crea tu contraseña».
+- Correo/teléfono + contraseña y Google (navegador + PKCE; Google aún no aceptado), con **confirmación de correo obligatoria**: nunca asumir sesión tras registrarse. Flujo, SMTP, cuentas autoconfirmadas y pasos remotos en `docs/email-confirmation.md`.
+- Todos los enlaces de Auth vuelven a `/auth/callback` (`authRedirectUrl()`), con `sb_flow_id` para usar el verificador PKCE de su propio flujo; las redirecciones permitidas son URLs exactas (+ `?sb_flow_id=*`) en `supabase/config.toml`. La aceptación móvil es en development builds, no en Expo Go.
+- El teléfono es un **alias de inicio de sesión no verificado** (Edge Function `phone-login`): no viene del alta; el dueño lo agrega desde Perfil (RLS). Verificarlo por SMS requiere un proveedor de pago y aprobación.
+- Una lista de correos permitidos no sustituye verificar la propiedad del correo.
+- Recuperación de contraseña: respuesta genérica; el tipo de enlace sale del verificador PKCE local (`redirectType` / `PASSWORD_RECOVERY`), nunca de la URL; `/reset-password` solo con sesión de recuperación; tras el cambio se cierran las demás sesiones (sus access tokens siguen hasta 1 h).
 
 ## Base de datos
 
@@ -62,6 +65,8 @@ Expo SDK 58 + Expo Router (rutas en `src/app/`) + TypeScript + Supabase (Auth, P
 ## Pruebas
 
 - Proveedores y pantallas con `test-renderer` y las utilidades de `src/test-utils/` (`render`, `createProbe`, `press`, `deferred`, almacenamiento en memoria, Supabase falso). Las pruebas de pantallas van en `src/__tests__/` (nunca dentro de `src/app/`, que son rutas).
+- Regresión de Auth contra Supabase local: `npm run test:auth-local` (toma de cuenta por recuperación incompleta + invitaciones; con registro cerrado, configuración actual, debe pasar). Obligatoria antes de R2 y de actualizar GoTrue.
+- `render` desmonta automáticamente cada árbol tras la prueba (`cleanup`); para simular cerrar la app a mitad de prueba usa `unmount(root)`. Jest debe terminar con código 0 y sin avisos de teardown (`npx jest --runInBand` lo hace evidente).
 
 ## Antes de terminar una tarea
 

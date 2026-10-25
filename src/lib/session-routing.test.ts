@@ -90,3 +90,29 @@ describe('toProfileState', () => {
     expect(resolveRoute({ authReady: true, userId: USER_A, profileState: retried })).toBe('onboarding');
   });
 });
+
+describe('resolveRoute: recuperación de contraseña', () => {
+  const onboarded: ProfileState = {
+    status: 'loaded',
+    userId: USER_A,
+    profile: profile({ onboarded_at: '2026-10-24T10:00:00Z' }),
+  };
+
+  it('una sesión de recuperación va a la contraseña nueva antes que al inicio', () => {
+    expect(resolveRoute({ authReady: true, userId: USER_A, profileState: onboarded, recoveryUserId: USER_A })).toBe(
+      'reset-password',
+    );
+  });
+
+  it('sin recuperación, el mismo usuario va al inicio', () => {
+    expect(resolveRoute({ authReady: true, userId: USER_A, profileState: onboarded, recoveryUserId: null })).toBe('app');
+  });
+
+  it('la recuperación de otro usuario no aplica a la sesión actual', () => {
+    expect(resolveRoute({ authReady: true, userId: USER_A, profileState: onboarded, recoveryUserId: USER_B })).toBe('app');
+  });
+
+  it('sin sesión no hay pantalla de contraseña nueva', () => {
+    expect(resolveRoute({ authReady: true, userId: null, profileState: null, recoveryUserId: USER_A })).toBe('auth');
+  });
+});
