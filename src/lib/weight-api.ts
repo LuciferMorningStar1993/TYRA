@@ -263,19 +263,32 @@ export async function loadCorrections(entryId: string): Promise<LoadResult<Weigh
   }
 }
 
+/** Última fila mostrada: el orden es changed_at desc, id desc, y el cursor usa ambos. */
+export type ActivityCursor = { changedAt: string; id: number };
+
+/**
+ * Filtro PostgREST para «filas después del cursor» en orden (changed_at desc, id desc):
+ * changed_at anterior, o la misma fecha y un id menor. Así no se pierden ni repiten filas aunque
+ * muchas compartan changed_at. La fecha va entre comillas (contiene «:», «.» y «+»).
+ */
+export function activityCursorFilter(cursor: ActivityCursor): string {
+  if (!Number.isInteger(cursor.id) || /["\\,()]/.test(cursor.changedAt)) throw new Error('Cursor de actividad inválido');
+  const at = `"${cursor.changedAt}"`;
+  return `changed_at.lt.${at},and(changed_at.eq.${at},id.lt.${cursor.id})`;
+}
+
 /**
  * Actividad reciente: correcciones y eliminaciones de la persona (más reciente primero), aunque ya
- * no tenga mediciones vigentes. Paginada por cursor `before` = changed_at de la última fila mostrada:
- * cada escritura es su propia transacción, así que dos filas de la misma persona no comparten
- * changed_at. Índice (user_id, changed_at desc); la RLS limita al dueño.
+ * no tenga mediciones vigentes. Paginada con cursor (changed_at, id). Índice (user_id, changed_at
+ * desc); la RLS limita al dueño.
  */
 export async function loadRecentActivity(
   userId: string,
-  before?: string,
+  after?: ActivityCursor,
 ): Promise<LoadResult<{ items: WeightCorrection[]; hasMore: boolean }>> {
   try {
     let query = supabase.from('weight_entry_audit').select(AUDIT_COLUMNS).eq('user_id', userId);
-    if (before) query = query.lt('changed_at', before);
+    if (after) query = query.or(activityCursorFilter(after));
     const { data, error } = await query
       .order('changed_at', { ascending: false })
       .order('id', { ascending: false })

@@ -69,7 +69,7 @@ supabase db dump --linked --data-only -s public -f ~/tyra-backups/remoto-$(date 
 ## 2. Comprobaciones previas (solo lectura)
 
 ```bash
-for f in docs/despliegue/salud-fase1/prechecks/*.sql; do echo "== $f"; supabase db query --linked -f "$f"; done
+bash docs/despliegue/salud-fase1/run-checks.sh docs/despliegue/salud-fase1/prechecks --linked
 ```
 
 Hay que guardar la salida. **Se detiene el despliegue** si:
@@ -97,7 +97,7 @@ Por eso el esquema va **antes** que el cliente.
 ## 4. Comprobaciones posteriores (solo lectura)
 
 ```bash
-for f in docs/despliegue/salud-fase1/postchecks/*.sql; do echo "== $f"; supabase db query --linked -f "$f"; done
+bash docs/despliegue/salud-fase1/run-checks.sh docs/despliegue/salud-fase1/postchecks --linked
 ```
 
 | Comprobación | Resultado esperado |
@@ -116,7 +116,7 @@ for f in docs/despliegue/salud-fase1/postchecks/*.sql; do echo "== $f"; supabase
 | Tarea `purge-weight-entry-audit` | Presente, `17 3 * * *` |
 | `supabase migration list --linked` | Migraciones aplicadas según D1 |
 
-Las comprobaciones posteriores se ejecutaron contra el Supabase **local** (con la migración A aplicada): 51 filas con `ok = true` y ninguna con `ok = false`.
+`run-checks.sh` aborta en el primer archivo que falle (código distinto de 0, error de la base o `ok = false`); no se sigue con el despliegue hasta resolverlo. Las comprobaciones posteriores se ejecutaron contra el Supabase **local** (con la migración A aplicada): 51 filas con `ok = true` y ninguna con `ok = false`.
 
 Si algo no coincide: **detenerse**, no publicar el cliente y corregir hacia adelante (sección 6).
 

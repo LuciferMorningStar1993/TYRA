@@ -235,7 +235,7 @@ describe('Historial', () => {
     });
     await press(one(root, 'Ver más actividad'));
     await flush();
-    expect(loadRecentActivity).toHaveBeenLastCalledWith('user-a', '2026-10-24T10:00:00Z');
+    expect(loadRecentActivity).toHaveBeenLastCalledWith('user-a', { changedAt: '2026-10-24T10:00:00Z', id: 7 });
     expect(allText(root.container)).toMatch(/se eliminó \(69 kg/);
     expect(byLabel(root, 'Ver más actividad')).toHaveLength(0);
   });

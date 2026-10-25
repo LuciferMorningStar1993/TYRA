@@ -21,7 +21,7 @@ type Result = { data: unknown; error: { code?: string; message: string } | null 
 function builder(result: Result | Error) {
   const chain: Record<string, jest.Mock> & { then?: unknown } = {};
   const settle = () => (result instanceof Error ? Promise.reject(result) : Promise.resolve(result));
-  for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'not', 'is', 'gte', 'lt', 'order', 'limit']) {
+  for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'not', 'is', 'gte', 'lt', 'or', 'order', 'limit']) {
     chain[method] = jest.fn(() => chain);
   }
   chain.maybeSingle = jest.fn(settle);
@@ -198,12 +198,63 @@ describe('loadRecentActivity', () => {
     expect(audit.order).toHaveBeenCalledWith('changed_at', { ascending: false });
   });
 
-  it('páginas siguientes usan el cursor de fecha de cambio', async () => {
+  it('páginas siguientes usan el cursor (changed_at, id) con la fecha entre comillas', async () => {
     const audit = builder({ data: [auditRow(3, 'deletion')], error: null });
     jest.mocked(supabase.from).mockReturnValue(audit as never);
-    const result = await loadRecentActivity('user-a', '2026-10-05T10:00:00Z');
-    expect(audit.lt).toHaveBeenCalledWith('changed_at', '2026-10-05T10:00:00Z');
+    const result = await loadRecentActivity('user-a', { changedAt: '2026-10-05T10:00:00.123456+00:00', id: 42 });
+    expect(audit.or).toHaveBeenCalledWith(
+      'changed_at.lt."2026-10-05T10:00:00.123456+00:00",and(changed_at.eq."2026-10-05T10:00:00.123456+00:00",id.lt.42)',
+    );
     expect(result).toMatchObject({ status: 'ok', data: { hasMore: false, items: [{ action: 'deletion', newWeightKg: null }] } });
+  });
+
+  it('más de 20 eventos con la misma fecha: recorre todos sin perder ni repetir', async () => {
+    // Servidor en memoria que aplica el mismo orden y filtro que PostgREST.
+    const SAME = '2026-10-24T10:00:00.5+00:00';
+    const rows = [
+      ...Array.from({ length: 25 }, (_, index) => ({ ...auditRow(1), id: index + 10, changed_at: SAME })),
+      { ...auditRow(1), id: 99, changed_at: '2026-10-25T08:00:00+00:00' },
+      { ...auditRow(1), id: 5, changed_at: '2026-10-20T08:00:00+00:00' },
+    ];
+    jest.mocked(supabase.from).mockImplementation(() => {
+      let filter: string | null = null;
+      let limit = Infinity;
+      const chain: Record<string, unknown> = {};
+      for (const method of ['select', 'eq', 'order']) chain[method] = () => chain;
+      chain.or = (value: string) => ((filter = value), chain);
+      chain.limit = (value: number) => ((limit = value), chain);
+      chain.then = (resolve: (value: Result) => unknown) => {
+        const match = filter?.match(/^changed_at\.lt\."([^"]+)",and\(changed_at\.eq\."([^"]+)",id\.lt\.(\d+)\)$/);
+        const after = (row: (typeof rows)[number]) =>
+          !match ||
+          Date.parse(row.changed_at) < Date.parse(match[1]) ||
+          (Date.parse(row.changed_at) === Date.parse(match[2]) && row.id < Number(match[3]));
+        const data = rows
+          .filter(after)
+          .sort((a, b) => Date.parse(b.changed_at) - Date.parse(a.changed_at) || b.id - a.id)
+          .slice(0, limit);
+        return Promise.resolve({ data, error: null }).then(resolve);
+      };
+      return chain as never;
+    });
+
+    const seen: number[] = [];
+    let cursor: { changedAt: string; id: number } | undefined;
+    for (let page = 0; page < 5; page += 1) {
+      const result = await loadRecentActivity('user-a', cursor);
+      if (result.status !== 'ok') throw new Error(result.message);
+      seen.push(...result.data.items.map((item) => item.id));
+      const last = result.data.items[result.data.items.length - 1];
+      if (!result.data.hasMore || !last) break;
+      cursor = { changedAt: last.changedAt, id: last.id };
+    }
+    expect(seen).toEqual([99, ...Array.from({ length: 25 }, (_, index) => 34 - index), 5]);
+    expect(new Set(seen).size).toBe(rows.length);
+  });
+
+  it('un cursor mal formado no llega al servidor', async () => {
+    await expect(loadRecentActivity('user-a', { changedAt: '2026",x', id: 1 })).resolves.toMatchObject({ status: 'error' });
+    expect(supabase.from).toHaveBeenCalledTimes(1); // se construye la consulta, pero el filtro falla antes de enviarla
   });
 
   it('un error no es «sin actividad»', async () => {

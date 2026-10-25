@@ -39,7 +39,7 @@ export function RecentWeightActivity({ userId, revision }: { userId: string; rev
     if (!last) return;
     setLoadingMore(true);
     setPageError(false);
-    const result = await loadRecentActivity(userId, last.changedAt);
+    const result = await loadRecentActivity(userId, { changedAt: last.changedAt, id: last.id });
     setLoadingMore(false);
     if (result.status === 'error') return setPageError(true);
     // Si mientras tanto cambió la revisión, la página se descarta (otra clave).
