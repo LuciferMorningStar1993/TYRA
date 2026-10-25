@@ -23,6 +23,8 @@ type SessionContextValue = {
   /** Perfil confirmado por el servidor; null si no está cargado. */
   profile: Profile | null;
   retryProfile: () => Promise<void>;
+  /** Vuelve a leer el perfil sin pasar por «cargando» (p. ej. tras completar el onboarding). */
+  refreshProfile: () => Promise<void>;
   /** Por qué la sesión actual debe crear contraseña: recuperación o invitación recién aceptada. */
   passwordSetupMode: PasswordSetupMode | null;
   /** Acepta una invitación (enlace o código) y, si se verifica, pide crear la contraseña. */
@@ -123,6 +125,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
     await load(userId);
   }, [userId, load]);
 
+  const refreshProfile = useCallback(async () => {
+    if (!userId) return;
+    await load(userId);
+  }, [userId, load]);
+
   const saveProfileForUser = useCallback(
     async (patch: ProfileUpdate, expectedUserId?: string): Promise<SaveProfileResult> => {
       if (!userId || profileState?.status !== 'loaded') return { ok: false, error: 'no_session' };
@@ -153,6 +160,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         profileState,
         profile,
         retryProfile,
+        refreshProfile,
         passwordSetupMode: setupForCurrentUser?.mode ?? null,
         acceptInvite,
         completeRecovery,

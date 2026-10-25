@@ -9,10 +9,12 @@ import { draftPalette, suggestedPalette, type Gender, type PaletteId } from '@/d
 import { useTheme } from '@/design/theme-provider';
 import type { ActivityLevel, Goal, Sex } from '@/lib/health';
 import { submitOnboarding, type OnboardingErrors } from '@/lib/onboarding';
+import { formatDateOnly } from '@/lib/profile';
+import { completeOnboarding } from '@/lib/weight-api';
 import { useSession } from '@/providers/session-provider';
 
 export default function OnboardingScreen() {
-  const { profile, saveProfile, signOut } = useSession();
+  const { profile, refreshProfile, signOut } = useSession();
   const { previewPalette } = useTheme();
 
   // Se decide una sola vez: elegir una paleta (borrador) nunca debe ocultar campos.
@@ -34,6 +36,9 @@ export default function OnboardingScreen() {
   const [errors, setErrors] = useState<OnboardingErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
+  // Día de la primera medición: se fija al abrir el formulario y se reutiliza en cada reintento,
+  // aunque ya sea otro día (un reintento después de medianoche no crea un segundo día).
+  const [measuredOn, setMeasuredOn] = useState(() => formatDateOnly(new Date()));
 
   const palette = showAppearance ? draftPalette(explicitPalette, gender) : null;
 
@@ -53,18 +58,26 @@ export default function OnboardingScreen() {
     setError(null);
     const result = await submitOnboarding(
       { displayName, gender, sex, birthDate, height, weight, activity, goal, palette },
-      saveProfile,
+      completeOnboarding,
+      measuredOn,
     );
+    if (result.status === 'saved') {
+      // Completo (o ya lo estaba): al recargar el perfil confirmado, el layout raíz lleva al inicio.
+      await refreshProfile();
+      setSaving(false);
+      return;
+    }
     setSaving(false);
     setSaveFailed(result.status === 'failed');
     if (result.status === 'invalid') {
       setErrors(result.errors);
       setError('Revisa los campos marcados.');
-    } else if (result.status === 'failed') {
-      setErrors({});
-      setError(result.message);
+      return;
     }
-    // 'saved': el perfil confirmado ya tiene onboarded_at y el layout raíz lleva al inicio.
+    setErrors({});
+    setError(result.message);
+    // Pasaron más de 2 días: el siguiente intento registra el peso de hoy, tras confirmarlo.
+    if (result.reason === 'invalid_measured_on') setMeasuredOn(formatDateOnly(new Date()));
   }
 
   return (

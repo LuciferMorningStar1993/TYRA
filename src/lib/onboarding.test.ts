@@ -1,11 +1,12 @@
 import {
+  onboardingErrorMessage,
   parseDecimal,
-  saveErrorMessage,
   submitOnboarding,
+  validateHealthData,
   validateOnboarding,
   type OnboardingDraft,
 } from './onboarding';
-import type { SaveProfileResult } from './profile-api';
+import type { CompleteOnboardingResult } from './weight-api';
 
 const TODAY = new Date(2026, 9, 24, 12, 0, 0);
 
@@ -24,7 +25,8 @@ function draft(overrides: Partial<OnboardingDraft> = {}): OnboardingDraft {
   };
 }
 
-const SAVED: SaveProfileResult = { ok: true, profile: { id: 'user-a' } as never };
+const COMPLETED: CompleteOnboardingResult = { status: 'completed' };
+const MEASURED_ON = '2026-10-24';
 
 describe('parseDecimal', () => {
   it('acepta coma o punto decimal', () => {
@@ -41,22 +43,24 @@ describe('parseDecimal', () => {
 });
 
 describe('validateOnboarding', () => {
-  it('genera el patch con los valores normalizados', () => {
-    const { errors, patch } = validateOnboarding(draft(), TODAY);
+  it('genera los datos para complete_onboarding con los valores normalizados', () => {
+    const { errors, input } = validateOnboarding(draft({ displayName: '  Ana ' }), TODAY);
     expect(errors).toEqual({});
-    expect(patch).toMatchObject({
-      display_name: 'Ana',
-      birth_date: '1993-05-10',
-      height_cm: 165,
-      weight_kg: 62.5,
-      theme_palette: 'aurora',
-      onboarded_at: TODAY.toISOString(),
+    expect(input).toEqual({
+      displayName: 'Ana',
+      gender: 'female',
+      sex: 'female',
+      birthDate: '1993-05-10',
+      heightCm: 165,
+      activityLevel: 'moderate',
+      goal: 'maintain',
+      themePalette: 'aurora',
+      weightKg: 62.5,
     });
   });
 
-  it('no envía paleta si el onboarding no tenía paso de apariencia', () => {
-    const { patch } = validateOnboarding(draft({ palette: null }), TODAY);
-    expect(patch).not.toHaveProperty('theme_palette');
+  it('sin paso de apariencia envía null (la función conserva la paleta guardada)', () => {
+    expect(validateOnboarding(draft({ palette: null }), TODAY).input?.themePalette).toBeNull();
   });
 
   it.each([
@@ -65,8 +69,8 @@ describe('validateOnboarding', () => {
     ['antes de 1900-01-02', new Date(1900, 0, 1), 'año'],
     ['vacía', null, 'Elige'],
   ])('fecha %s es inválida', (_label, birthDate, message) => {
-    const { errors, patch } = validateOnboarding(draft({ birthDate }), TODAY);
-    expect(patch).toBeNull();
+    const { errors, input } = validateOnboarding(draft({ birthDate }), TODAY);
+    expect(input).toBeNull();
     expect(errors.birthDate).toMatch(message);
   });
 
@@ -97,47 +101,79 @@ describe('validateOnboarding', () => {
 
 describe('submitOnboarding', () => {
   it('no llama al servidor si el formulario es inválido', async () => {
-    const save = jest.fn();
-    const result = await submitOnboarding(draft({ height: '10' }), save, TODAY);
+    const complete = jest.fn();
+    const result = await submitOnboarding(draft({ height: '10' }), complete, MEASURED_ON, TODAY);
     expect(result.status).toBe('invalid');
-    expect(save).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('envía perfil y peso juntos con la fecha de medición recibida', async () => {
+    const complete = jest.fn(async () => COMPLETED);
+    await expect(submitOnboarding(draft(), complete, '2026-10-23', TODAY)).resolves.toEqual({ status: 'saved' });
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ weightKg: 62.5, heightCm: 165, measuredOn: '2026-10-23' }));
   });
 
   it('guardado lento: no informa éxito hasta que el servidor confirma', async () => {
-    let confirm!: (value: SaveProfileResult) => void;
-    const save = jest.fn(() => new Promise<SaveProfileResult>((resolve) => (confirm = resolve)));
+    let confirm!: (value: CompleteOnboardingResult) => void;
+    const complete = jest.fn(() => new Promise<CompleteOnboardingResult>((resolve) => (confirm = resolve)));
     let settled = false;
-    const pending = submitOnboarding(draft(), save, TODAY).then((result) => {
+    const pending = submitOnboarding(draft(), complete, MEASURED_ON, TODAY).then((result) => {
       settled = true;
       return result;
     });
 
     await Promise.resolve();
-    expect(save).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalledTimes(1);
     expect(settled).toBe(false);
 
-    confirm(SAVED);
+    confirm(COMPLETED);
     await expect(pending).resolves.toEqual({ status: 'saved' });
   });
 
-  it('fallo del servidor: devuelve un mensaje y permite reintentar', async () => {
-    const save = jest
-      .fn<Promise<SaveProfileResult>, []>()
-      .mockResolvedValueOnce({ ok: false, error: 'Network request failed' })
-      .mockResolvedValueOnce(SAVED);
+  it('fallo del servidor: mensaje claro y reintento con la MISMA fecha de medición', async () => {
+    const complete = jest
+      .fn<Promise<CompleteOnboardingResult>, [unknown]>()
+      .mockResolvedValueOnce({ status: 'error', reason: 'other', message: 'Network request failed' })
+      .mockResolvedValueOnce(COMPLETED);
 
-    const first = await submitOnboarding(draft(), save, TODAY);
-    expect(first).toEqual({ status: 'failed', message: expect.stringMatching(/conexión/) });
+    const first = await submitOnboarding(draft(), complete, MEASURED_ON, TODAY);
+    expect(first).toEqual({ status: 'failed', reason: 'other', message: expect.stringMatching(/conexión/) });
 
-    const retry = await submitOnboarding(draft(), save, TODAY);
+    const nextDay = new Date(2026, 9, 25, 0, 30);
+    const retry = await submitOnboarding(draft(), complete, MEASURED_ON, nextDay);
     expect(retry).toEqual({ status: 'saved' });
-    expect(save).toHaveBeenCalledTimes(2);
+    expect(complete).toHaveBeenLastCalledWith(expect.objectContaining({ measuredOn: MEASURED_ON }));
   });
 
-  it('update sin fila o sin sesión nunca se reporta como éxito', async () => {
-    for (const error of ['no_row', 'no_session']) {
-      const result = await submitOnboarding(draft(), async () => ({ ok: false, error }), TODAY);
-      expect(result).toEqual({ status: 'failed', message: saveErrorMessage(error) });
-    }
+  it('ya completado (respuesta perdida u otro dispositivo) también es éxito', async () => {
+    const result = await submitOnboarding(draft(), async () => ({ status: 'already_completed' }), MEASURED_ON, TODAY);
+    expect(result).toEqual({ status: 'saved' });
+  });
+
+  it.each([
+    ['weight_day_conflict', /otro peso registrado/],
+    ['invalid_measured_on', /Confirma tu peso de hoy/],
+    ['missing_field', /Faltan datos obligatorios/],
+    ['out_of_range', /fuera de rango/],
+    ['no_session', /sesión expiró/],
+  ] as const)('%s: nunca se reporta como éxito y explica el motivo', async (reason, message) => {
+    const result = await submitOnboarding(draft(), async () => ({ status: 'error', reason, message: reason }), MEASURED_ON, TODAY);
+    expect(result).toEqual({ status: 'failed', reason, message: onboardingErrorMessage(reason) });
+    expect(onboardingErrorMessage(reason)).toMatch(message);
+  });
+});
+
+describe('validateHealthData (pantalla «Datos de salud»)', () => {
+  it('genera el patch sin peso', () => {
+    expect(validateHealthData({ height: '170,5', activity: 'light', goal: 'lose' })).toEqual({
+      errors: {},
+      patch: { height_cm: 170.5, activity_level: 'light', goal: 'lose' },
+    });
+  });
+
+  it('marca estatura fuera de rango y opciones vacías', () => {
+    const { errors, patch } = validateHealthData({ height: '300', activity: null, goal: null });
+    expect(patch).toBeNull();
+    expect(Object.keys(errors).sort()).toEqual(['activity', 'goal', 'height']);
   });
 });

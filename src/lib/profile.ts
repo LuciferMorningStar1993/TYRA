@@ -16,17 +16,20 @@ export function formatDateOnly(date: Date): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-/** Devuelve los datos de salud del perfil, o null si el onboarding está incompleto. */
-export function toHealthProfile(profile: Profile): HealthProfile | null {
-  const { sex, birth_date, height_cm, weight_kg, activity_level, goal } = profile;
-  if (!sex || !birth_date || !height_cm || !weight_kg || !activity_level || !goal) {
+/**
+ * Datos de salud del perfil más el peso vigente (de weight_entries; profiles.weight_kg ya no se
+ * usa). null si falta algún dato o no hay peso.
+ */
+export function toHealthProfile(profile: Profile, currentWeightKg: number | null): HealthProfile | null {
+  const { sex, birth_date, height_cm, activity_level, goal } = profile;
+  if (!sex || !birth_date || !height_cm || !currentWeightKg || !activity_level || !goal) {
     return null;
   }
   return {
     sex: sex as Sex,
     birthDate: parseDateOnly(birth_date),
     heightCm: Number(height_cm),
-    weightKg: Number(weight_kg),
+    weightKg: currentWeightKg,
     activityLevel: activity_level as ActivityLevel,
     goal: goal as Goal,
   };

@@ -4,20 +4,21 @@ import { StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/ui';
 import { useTheme } from '@/design/theme-provider';
 import { controlHeight, radius, space, typography } from '@/design/tokens';
-import { MIN_BIRTH_DATE } from '@/lib/onboarding';
 import { formatDateOnly, parseDateOnly } from '@/lib/profile';
 
-import type { BirthDateFieldProps } from './birth-date-field';
+import type { DateFieldProps } from './date-field';
 
 /**
  * Web: <input type="date"> nativo del navegador. Es accesible con teclado y lector de
  * pantalla, y tiene su propio calendario; no requiere dependencias.
  */
-export function BirthDateField({ value, onChange, error }: BirthDateFieldProps) {
+export function DateField({ label, value, onChange, minimumDate, maximumDate, hint, error }: DateFieldProps) {
   const { colors } = useTheme();
   const id = useId();
   const [focused, setFocused] = useState(false);
   const errorId = `${id}-error`;
+  const hintId = `${id}-hint`;
+  const describedBy = error ? errorId : hint ? hintId : undefined;
 
   return (
     <View style={styles.field}>
@@ -32,18 +33,18 @@ export function BirthDateField({ value, onChange, error }: BirthDateFieldProps) 
             color: colors.textPrimary,
           },
         },
-        'Fecha de nacimiento',
+        label,
       )}
       {createElement('input', {
         id,
         type: 'date',
         // No controlado: si React reescribe `value` en cada render, borra la fecha que se está tecleando.
         defaultValue: value ? formatDateOnly(value) : undefined,
-        min: formatDateOnly(MIN_BIRTH_DATE),
-        max: formatDateOnly(new Date()),
+        min: formatDateOnly(minimumDate),
+        max: formatDateOnly(maximumDate),
         required: true,
         'aria-invalid': error ? true : undefined,
-        'aria-describedby': error ? errorId : undefined,
+        'aria-describedby': describedBy,
         onChange: (event: { target: { value: string } }) => {
           onChange(event.target.value ? parseDateOnly(event.target.value) : null);
         },
@@ -68,11 +69,15 @@ export function BirthDateField({ value, onChange, error }: BirthDateFieldProps) 
           outlineOffset: 2,
         },
       })}
-      {error && (
+      {error ? (
         <AppText variant="secondary" tone="error" nativeID={errorId} accessibilityLiveRegion="polite">
           {error}
         </AppText>
-      )}
+      ) : hint ? (
+        <AppText variant="secondary" nativeID={hintId}>
+          {hint}
+        </AppText>
+      ) : null}
     </View>
   );
 }

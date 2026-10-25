@@ -39,6 +39,7 @@ Expo SDK 58 + Expo Router (rutas en `src/app/`) + TypeScript + Supabase (Auth, P
 
 ## Salud
 
+- **Peso: fuente única `weight_entries`** (`src/lib/weight.ts`, `weight-api.ts`, `providers/weight-provider.tsx`). Vigente = medición fechada más reciente; si no hay, el peso heredado del perfil sin fecha (fuera de gráficas y resúmenes hasta confirmar su fecha). `profiles.weight_kg` es obsoleta: la app no la lee ni la escribe (se retira con la migración B, entrega posterior). Corregir/eliminar exige la `version` leída; la auditoría vence a los 180 días. Onboarding = `complete_onboarding` (perfil + primer peso en una transacción). Diseño: `docs/propuestas/salud-peso/propuesta.md`.
 - Los indicadores siguen `HEALTH_AGE_POLICY` y `GOAL_POLICY` (`src/lib/health.ts`): gasto estimado (descriptivo) separado de la meta según objetivo (recomendación). Nunca mostrar valores negativos o no finitos; los casos no aplicables se explican. No inventar fórmulas pediátricas ni pisos clínicos.
 
 ## Autenticación
