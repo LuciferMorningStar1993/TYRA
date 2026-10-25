@@ -5,9 +5,11 @@
 import type { Database } from './database.types';
 import { supabase } from './supabase';
 import type { MonthlySummary, WeightEntry, WeightOrigin } from './weight';
+import type { WeightGoal } from './weight-goal';
 
 type EntryRow = Database['public']['Tables']['weight_entries']['Row'];
 type MonthlyRow = Database['public']['Views']['weight_monthly_summaries']['Row'];
+type GoalRow = Database['public']['Tables']['weight_goals']['Row'];
 
 const ENTRY_COLUMNS = 'id, measured_on, weight_kg, origin, version, created_at, updated_at';
 export const HISTORY_PAGE_SIZE = 30;
@@ -81,12 +83,32 @@ export type WeightOverview = {
   legacy: WeightEntry | null;
   /** Meses con datos desde `fromMonth` (más reciente primero). */
   monthly: MonthlySummary[];
+  /** Meta de peso (opcional) y la medición de partida a la que apunta, si aún existe. */
+  goal: WeightGoal | null;
+  goalStartEntry: WeightEntry | null;
 };
+
+const GOAL_COLUMNS =
+  'id, target_weight_kg, start_weight_kg, start_measured_on, start_entry_id, start_entry_version, version, set_at, updated_at';
+
+function toGoal(row: Omit<GoalRow, 'user_id'>): WeightGoal {
+  return {
+    id: row.id,
+    targetWeightKg: Number(row.target_weight_kg),
+    startWeightKg: Number(row.start_weight_kg),
+    startMeasuredOn: row.start_measured_on,
+    startEntryId: row.start_entry_id,
+    startEntryVersion: row.start_entry_version,
+    version: row.version,
+    setAt: row.set_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 /** Todo lo que necesitan Inicio, Salud y el historial, en una sola carga. */
 export async function loadWeightOverview(userId: string, fromMonth: string): Promise<LoadResult<WeightOverview>> {
   try {
-    const [recent, legacy, monthly] = await Promise.all([
+    const [recent, legacy, monthly, goal] = await Promise.all([
       supabase
         .from('weight_entries')
         .select(ENTRY_COLUMNS)
@@ -101,9 +123,17 @@ export async function loadWeightOverview(userId: string, fromMonth: string): Pro
         .eq('user_id', userId)
         .gte('month', fromMonth)
         .order('month', { ascending: false }),
+      supabase.from('weight_goals').select(GOAL_COLUMNS).eq('user_id', userId).maybeSingle(),
     ]);
-    const error = recent.error ?? legacy.error ?? monthly.error;
+    const error = recent.error ?? legacy.error ?? monthly.error ?? goal.error;
     if (error) return { status: 'error', message: error.message };
+    // Estado de la medición de partida (corregida o eliminada): solo si hay meta y referencia.
+    let goalStartEntry: WeightEntry | null = null;
+    if (goal.data?.start_entry_id) {
+      const start = await supabase.from('weight_entries').select(ENTRY_COLUMNS).eq('id', goal.data.start_entry_id).maybeSingle();
+      if (start.error) return { status: 'error', message: start.error.message };
+      goalStartEntry = start.data ? toEntry(start.data) : null;
+    }
     const rows = recent.data ?? [];
     return {
       status: 'ok',
@@ -112,6 +142,8 @@ export async function loadWeightOverview(userId: string, fromMonth: string): Pro
         hasMore: rows.length > HISTORY_PAGE_SIZE,
         legacy: legacy.data ? toEntry(legacy.data) : null,
         monthly: (monthly.data ?? []).map(toMonthly),
+        goal: goal.data ? toGoal(goal.data) : null,
+        goalStartEntry,
       },
     };
   } catch (error) {
@@ -360,5 +392,104 @@ export async function completeOnboarding(input: OnboardingInput): Promise<Comple
     return data === 'already_completed' ? { status: 'already_completed' } : { status: 'completed' };
   } catch (error) {
     return { status: 'error', reason: 'other', message: errorMessage(error) };
+  }
+}
+
+// --- Meta de peso ---------------------------------------------------------------------------
+
+/** Todos los meses con datos (rango «Todo»), en orden cronológico. */
+export async function loadAllMonthlySummaries(userId: string): Promise<LoadResult<MonthlySummary[]>> {
+  try {
+    const { data, error } = await supabase
+      .from('weight_monthly_summaries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('month', { ascending: true });
+    if (error) return { status: 'error', message: error.message };
+    return { status: 'ok', data: (data ?? []).map(toMonthly) };
+  } catch (error) {
+    return { status: 'error', message: errorMessage(error) };
+  }
+}
+
+export type GoalMutationResult =
+  | { status: 'ok'; goal: WeightGoal }
+  | { status: 'deleted' }
+  /** La meta cambió en otro dispositivo (otra versión), o ya hay una al intentar crear. */
+  | { status: 'goal_conflict' }
+  /** La meta que se quería editar, reiniciar o eliminar ya no existe (aunque haya otra nueva). */
+  | { status: 'goal_missing' }
+  | { status: 'age_not_eligible' }
+  | { status: 'no_dated_measurement' }
+  | { status: 'out_of_range' }
+  | { status: 'error'; message: string };
+
+function goalError(error: PostgrestError): GoalMutationResult {
+  for (const status of ['goal_conflict', 'goal_missing', 'age_not_eligible', 'no_dated_measurement'] as const) {
+    if (error.message.includes(status)) return { status };
+  }
+  if (error.code === '23514' || /check constraint/i.test(error.message)) return { status: 'out_of_range' };
+  return { status: 'error', message: error.message };
+}
+
+/**
+ * Crear (sin `goal`), editar o reiniciar (con el id y la versión leídos). El punto de partida lo
+ * fija el servidor; una operación obsoleta recibe goal_conflict o goal_missing y nunca recrea.
+ */
+export async function setWeightGoal(input: {
+  targetKg: number;
+  goal?: Pick<WeightGoal, 'id' | 'version'>;
+  resetStart?: boolean;
+}): Promise<GoalMutationResult> {
+  try {
+    const { data, error } = await supabase
+      .rpc('set_weight_goal', {
+        p_target_weight_kg: input.targetKg,
+        p_goal_id: input.goal?.id,
+        p_expected_version: input.goal?.version,
+        p_reset_start: input.resetStart ?? false,
+      })
+      .single();
+    if (error) return goalError(error);
+    return { status: 'ok', goal: toGoal(data as GoalRow) };
+  } catch (error) {
+    return { status: 'error', message: errorMessage(error) };
+  }
+}
+
+/** Elimina solo la meta leída (id + versión). 0 filas: cambió o ya no existe (se recarga). */
+export async function deleteWeightGoal(goal: Pick<WeightGoal, 'id' | 'version'>): Promise<GoalMutationResult> {
+  try {
+    const { data, error } = await supabase
+      .from('weight_goals')
+      .delete()
+      .eq('id', goal.id)
+      .eq('version', goal.version)
+      .select('id');
+    if (error) return goalError(error);
+    return (data ?? []).length > 0 ? { status: 'deleted' } : { status: 'goal_conflict' };
+  } catch (error) {
+    return { status: 'error', message: errorMessage(error) };
+  }
+}
+
+export function goalActionMessage(result: GoalMutationResult | { status: 'stale_session' }): string | null {
+  switch (result.status) {
+    case 'goal_conflict':
+      return 'Tu meta cambió en otro dispositivo. Mostramos la actual.';
+    case 'goal_missing':
+      return 'Tu meta se eliminó en otro dispositivo. Puedes fijar una nueva.';
+    case 'age_not_eligible':
+      return `La meta de peso está disponible desde los 20 años.`;
+    case 'no_dated_measurement':
+      return 'Registra una medición con fecha (o confirma la fecha de tu peso del perfil) para fijar tu meta.';
+    case 'out_of_range':
+      return 'La meta debe estar entre 20 y 400 kg.';
+    case 'stale_session':
+      return 'Tu sesión cambió. Vuelve a abrir esta pantalla.';
+    case 'error':
+      return 'No pudimos guardar. Revisa tu conexión e inténtalo de nuevo.';
+    default:
+      return null;
   }
 }

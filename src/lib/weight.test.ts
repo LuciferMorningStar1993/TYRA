@@ -1,14 +1,21 @@
 import {
+  allRangeBounds,
   chartLayout,
   chartPoints,
   chartSummary,
   currentWeight,
   describeChange,
+  monthlyChartPoints,
+  monthlyChartSummary,
+  monthlyPoints,
+  monthlySegments,
   monthlyStatuses,
   monthsInRange,
   rangeStart,
   validateWeightForm,
   wasCorrected,
+  weightScale,
+  weightToY,
   type MonthlySummary,
   type WeightEntry,
 } from './weight';
@@ -158,5 +165,50 @@ describe('resúmenes mensuales', () => {
       { month: '2026-09-01', status: 'no_data' },
       { month: '2026-08-01', status: 'insufficient', measuredOn: '2026-08-10', weightKg: 74 },
     ]);
+  });
+});
+
+describe('«Todo»: promedios mensuales', () => {
+  const summary = (month: string, averageKg: number, entries = 2): MonthlySummary => ({
+    month,
+    entries,
+    averageKg,
+    firstMeasuredOn: month,
+    firstWeightKg: averageKg,
+    lastMeasuredOn: month,
+    lastWeightKg: averageKg,
+    changeKg: entries > 1 ? 0 : null,
+  });
+
+  it('solo meses con datos, en orden, a mitad de mes (sin rellenar)', () => {
+    const points = monthlyPoints([summary('2026-04-01', 71), summary('2026-01-01', 73), summary('2026-02-01', 72, 1)]);
+    expect(points.map((point) => point.month)).toEqual(['2026-01-01', '2026-02-01', '2026-04-01']);
+    expect(monthlyChartPoints(points).map((point) => point.measuredOn)).toEqual(['2026-01-15', '2026-02-15', '2026-04-15']);
+  });
+
+  it('un mes sin datos interrumpe la línea: ene, feb, —, abr → 2 tramos', () => {
+    const points = monthlyPoints([summary('2026-01-01', 73), summary('2026-02-01', 72), summary('2026-04-01', 71)]);
+    expect(monthlySegments(points)).toEqual([[0, 1], [2]]);
+  });
+
+  it('cambio de año consecutivo no interrumpe (dic → ene)', () => {
+    const points = monthlyPoints([summary('2025-12-01', 73), summary('2026-01-01', 72)]);
+    expect(monthlySegments(points)).toEqual([[0, 1]]);
+  });
+
+  it('periodo y resumen accesible: meses con datos de meses totales', () => {
+    const points = monthlyPoints([summary('2026-08-01', 73), summary('2026-10-01', 71)]);
+    expect(allRangeBounds(points, TODAY)).toEqual({ from: new Date(2026, 7, 1), to: new Date(2026, 9, 31) });
+    expect(monthlyChartSummary(points, TODAY)).toMatch(/2 de 3 meses con datos; los meses sin datos interrumpen la línea/);
+  });
+
+  it('línea de meta solo dentro de la escala', () => {
+    const scale = weightScale([
+      { measuredOn: '2026-10-01', weightKg: 70 },
+      { measuredOn: '2026-10-02', weightKg: 74 },
+    ]);
+    const size = { width: 100, height: 50, padding: 5 };
+    expect(weightToY(72, scale!, size)).toBe(25);
+    expect(weightToY(68, scale!, size)).toBeNull();
   });
 });

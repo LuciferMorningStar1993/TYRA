@@ -45,6 +45,15 @@ export const HEALTH_HELP = {
       'Si la meta quedara por debajo de tu gasto basal, no se calcula. Es una regla orientativa de TYRA, no un plan de alimentación.',
     source: 'Regla de TYRA basada en las estimaciones anteriores. Para un plan individual, consulta a un profesional de la salud.',
   },
+  goalProgress: {
+    id: 'goalProgress',
+    title: '¿Cómo se calcula tu avance?',
+    body:
+      'Compara tu medición más reciente con el punto de partida que se registró al fijar tu meta. ' +
+      'Solo cuenta una medición de un día posterior al de partida: corregir o eliminar la medición de partida no cambia tu avance. ' +
+      'No calcula fechas de llegada ni ritmos, y no cambia tu meta de calorías.',
+    source: 'Cálculo de TYRA con tus mediciones vigentes.',
+  },
   monthlyChange: {
     id: 'monthlyChange',
     title: '¿Qué significa la variación del mes?',

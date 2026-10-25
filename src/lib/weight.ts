@@ -77,11 +77,13 @@ export function validateWeightForm(
 
 // --- Gráfica --------------------------------------------------------------------------------
 
-export type ChartRange = '30d' | '90d' | '1y';
+/** 'all' («Todo») usa SIEMPRE promedios mensuales, sin importar cuántos datos haya. */
+export type ChartRange = '30d' | '90d' | '1y' | 'all';
+export type DailyRange = Exclude<ChartRange, 'all'>;
 
-export const CHART_RANGE_DAYS: Record<ChartRange, number> = { '30d': 30, '90d': 90, '1y': 365 };
+export const CHART_RANGE_DAYS: Record<DailyRange, number> = { '30d': 30, '90d': 90, '1y': 365 };
 
-export function rangeStart(range: ChartRange, today: Date = new Date()): Date {
+export function rangeStart(range: DailyRange, today: Date = new Date()): Date {
   const start = startOfDay(today);
   start.setDate(start.getDate() - (CHART_RANGE_DAYS[range] - 1));
   return start;
@@ -105,13 +107,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * Coordenadas para dibujar: x según el día real (los huecos se ven como huecos), y según el peso
  * con un margen mínimo de 1 kg para que cambios pequeños no parezcan enormes.
  */
-export function chartLayout(
-  points: readonly ChartPoint[],
-  size: { width: number; height: number; padding: number },
-  from: Date,
-  to: Date,
-): { x: number; y: number }[] {
-  if (points.length === 0) return [];
+export type ChartSize = { width: number; height: number; padding: number };
+
+/** Escala vertical: los pesos visibles, con un margen mínimo de 1 kg. */
+export function weightScale(points: readonly ChartPoint[]): { min: number; max: number } | null {
+  if (points.length === 0) return null;
   const weights = points.map((point) => point.weightKg);
   let min = Math.min(...weights);
   let max = Math.max(...weights);
@@ -120,6 +120,24 @@ export function chartLayout(
     min = middle - 0.5;
     max = middle + 0.5;
   }
+  return { min, max };
+}
+
+/** y de un peso en la escala, o null si queda fuera (p. ej. la línea de meta). */
+export function weightToY(weightKg: number, scale: { min: number; max: number }, size: ChartSize): number | null {
+  if (weightKg < scale.min || weightKg > scale.max) return null;
+  return size.padding + ((scale.max - weightKg) / (scale.max - scale.min)) * (size.height - size.padding * 2);
+}
+
+export function chartLayout(
+  points: readonly ChartPoint[],
+  size: ChartSize,
+  from: Date,
+  to: Date,
+): { x: number; y: number }[] {
+  const scale = weightScale(points);
+  if (!scale) return [];
+  const { min, max } = scale;
   const span = Math.max(1, (startOfDay(to).getTime() - startOfDay(from).getTime()) / DAY_MS);
   const innerWidth = size.width - size.padding * 2;
   const innerHeight = size.height - size.padding * 2;
@@ -229,6 +247,65 @@ export function monthlyStatuses(summaries: readonly MonthlySummary[], from: Date
       changeKg: summary.changeKg,
     };
   });
+}
+
+// --- «Todo»: promedios mensuales ---------------------------------------------------------
+
+export type MonthlyPoint = { month: string; averageKg: number; entries: number };
+
+/** Promedios mensuales en orden cronológico (solo meses con datos; nada se rellena). */
+export function monthlyPoints(summaries: readonly MonthlySummary[]): MonthlyPoint[] {
+  return summaries
+    .filter((summary) => summary.entries > 0)
+    .map((summary) => ({ month: summary.month, averageKg: summary.averageKg, entries: summary.entries }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+}
+
+/** Cada promedio se dibuja a mitad de su mes. */
+export function monthlyChartPoints(points: readonly MonthlyPoint[]): ChartPoint[] {
+  return points.map((point) => ({ measuredOn: `${point.month.slice(0, 8)}15`, weightKg: point.averageKg }));
+}
+
+function monthIndex(month: string): number {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return year * 12 + (monthNumber - 1);
+}
+
+/**
+ * Tramos de meses CONSECUTIVOS con datos (índices de `points`). Un mes sin datos interrumpe la
+ * línea: ene, feb, —, abr → [[0, 1], [2]].
+ */
+export function monthlySegments(points: readonly MonthlyPoint[]): number[][] {
+  const segments: number[][] = [];
+  points.forEach((point, index) => {
+    const previous = points[index - 1];
+    if (previous && monthIndex(point.month) === monthIndex(previous.month) + 1) {
+      segments[segments.length - 1].push(index);
+    } else {
+      segments.push([index]);
+    }
+  });
+  return segments;
+}
+
+/** Periodo de «Todo»: del primer mes con datos al mes actual. */
+export function allRangeBounds(points: readonly MonthlyPoint[], today: Date = new Date()): { from: Date; to: Date } | null {
+  if (points.length === 0) return null;
+  const from = parseDateOnly(points[0].month);
+  return { from, to: new Date(today.getFullYear(), today.getMonth() + 1, 0) };
+}
+
+export function monthlyChartSummary(points: readonly MonthlyPoint[], today: Date = new Date()): string {
+  if (points.length === 0) return 'Sin mediciones.';
+  const bounds = allRangeBounds(points, today);
+  const totalMonths = bounds ? monthIndex(formatDateOnly(bounds.to)) - monthIndex(points[0].month) + 1 : points.length;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return (
+    `Promedio mensual de ${formatMonth(first.month)} a ${formatMonth(last.month)}: ` +
+    `de ${formatKg(first.averageKg)} a ${formatKg(last.averageKg)}. ` +
+    `${points.length} de ${totalMonths} meses con datos; los meses sin datos interrumpen la línea.`
+  );
 }
 
 export function formatMonth(month: string): string {

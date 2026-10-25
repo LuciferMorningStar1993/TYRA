@@ -1,8 +1,10 @@
 import { router } from 'expo-router';
-import { History, Scale } from 'lucide-react-native';
+import { History, Scale, Target } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
 
 import { WeightChart } from '@/components/weight-chart';
+import { WeightGoalProgress } from '@/components/weight-goal-progress';
+import { useWeightGoal } from '@/hooks/use-weight-goal';
 import { AppText, Button, Card } from '@/components/ui';
 import { space } from '@/design/tokens';
 import { chartPoints, formatKg, formatMeasuredOn, rangeStart } from '@/lib/weight';
@@ -11,6 +13,9 @@ import { useWeight } from '@/providers/weight-provider';
 /** Tarjeta «Peso» de Salud: peso vigente, evolución de 30 días y accesos a registrar e historial. */
 export function WeightCard() {
   const { state, current, reload } = useWeight();
+  const goalState = useWeightGoal();
+  const goal = goalState.status === 'ready' ? goalState.progress : null;
+  const showGoal = goal && goal.status !== 'not_eligible' && (goal.status !== 'no_goal' || goal.canSet);
   const today = new Date();
   const from = rangeStart('30d', today);
 
@@ -62,8 +67,17 @@ export function WeightCard() {
           )}
         </>
       )}
+      {showGoal && goal.status !== 'no_goal' && <WeightGoalProgress progress={goal} />}
       <View style={styles.actions}>
         <Button title="Registrar peso" icon={Scale} onPress={() => router.push('/peso/registrar')} />
+        {showGoal && (
+          <Button
+            title={goal.status === 'no_goal' ? 'Fijar meta' : 'Ver meta'}
+            icon={Target}
+            variant="outline"
+            onPress={() => router.push('/peso/meta')}
+          />
+        )}
         <Button title="Ver historial" icon={History} variant="outline" onPress={() => router.push('/peso')} />
       </View>
     </Card>

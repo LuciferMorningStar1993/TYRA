@@ -23,6 +23,7 @@ export default function AppLayout() {
         <Stack.Screen name="apariencia" options={{ title: 'Apariencia' }} />
         <Stack.Screen name="peso/index" options={{ title: 'Peso' }} />
         <Stack.Screen name="peso/registrar" options={{ title: 'Registrar peso' }} />
+        <Stack.Screen name="peso/meta" options={{ title: 'Meta de peso' }} />
         <Stack.Screen name="datos-salud" options={{ title: 'Datos de salud' }} />
       </Stack>
     </WeightProvider>

@@ -64,7 +64,7 @@ function entry(measuredOn: string | null, weightKg: number, version = 1): Weight
 }
 
 function overview(recent: WeightEntry[], extra: Partial<WeightOverview> = {}) {
-  return { status: 'ok' as const, data: { recent, hasMore: false, legacy: null, monthly: [], ...extra } };
+  return { status: 'ok' as const, data: { recent, hasMore: false, legacy: null, monthly: [], goal: null, goalStartEntry: null, ...extra } };
 }
 
 async function renderScreen(screen: ReactElement, recent: WeightEntry[] = [], extra: Partial<WeightOverview> = {}) {

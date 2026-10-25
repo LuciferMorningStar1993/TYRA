@@ -2,11 +2,15 @@ import { createContext, use, useCallback, useEffect, useRef, useState, type Prop
 
 import { formatDateOnly } from '@/lib/profile';
 import { currentWeight, type CurrentWeight, type WeightEntry } from '@/lib/weight';
+import type { WeightGoal } from '@/lib/weight-goal';
 import {
   addWeightEntry,
   deleteWeightEntry,
+  deleteWeightGoal,
   loadWeightOverview,
+  setWeightGoal,
   updateWeightEntry,
+  type GoalMutationResult,
   type WeightMutationResult,
   type WeightOverview,
 } from '@/lib/weight-api';
@@ -21,6 +25,7 @@ export type WeightState =
   | { status: 'error'; message: string };
 
 export type WeightActionResult = WeightMutationResult | { status: 'stale_session' };
+export type GoalActionResult = GoalMutationResult | { status: 'stale_session' };
 
 type WeightContextValue = {
   /** Estado del usuario de la sesión actual. */
@@ -37,6 +42,12 @@ type WeightContextValue = {
     expectedUserId?: string,
   ) => Promise<WeightActionResult>;
   deleteEntry: (entry: Pick<WeightEntry, 'id' | 'version'>, expectedUserId?: string) => Promise<WeightActionResult>;
+  /** Crear (sin `goal`), editar o reiniciar la meta (con el id y la versión leídos). */
+  saveGoal: (
+    input: { targetKg: number; goal?: Pick<WeightGoal, 'id' | 'version'>; resetStart?: boolean },
+    expectedUserId?: string,
+  ) => Promise<GoalActionResult>;
+  deleteGoal: (goal: Pick<WeightGoal, 'id' | 'version'>, expectedUserId?: string) => Promise<GoalActionResult>;
 };
 
 const WeightContext = createContext<WeightContextValue | null>(null);
@@ -106,7 +117,10 @@ export function WeightProvider({ children }: PropsWithChildren) {
 
   /** Ejecuta una escritura de la sesión actual y, si el servidor respondió, recarga el estado. */
   const mutate = useCallback(
-    async (run: () => Promise<WeightMutationResult>, expectedUserId?: string): Promise<WeightActionResult> => {
+    async <R extends { status: string }>(
+      run: () => Promise<R>,
+      expectedUserId?: string,
+    ): Promise<R | { status: 'stale_session' }> => {
       if (!userId || (expectedUserId && expectedUserId !== userId)) return { status: 'stale_session' };
       const requestGeneration = generation.current;
       const result = await run();
@@ -130,13 +144,22 @@ export function WeightProvider({ children }: PropsWithChildren) {
     (entry, expectedUserId) => mutate(() => deleteWeightEntry(entry), expectedUserId),
     [mutate],
   );
+  // Tras un conflicto o una meta ya eliminada también se recarga: se muestra la meta actual.
+  const saveGoal = useCallback<WeightContextValue['saveGoal']>(
+    (input, expectedUserId) => mutate(() => setWeightGoal(input), expectedUserId),
+    [mutate],
+  );
+  const deleteGoal = useCallback<WeightContextValue['deleteGoal']>(
+    (goal, expectedUserId) => mutate(() => deleteWeightGoal(goal), expectedUserId),
+    [mutate],
+  );
 
   const state: WeightState = stored && stored.userId === userId ? stored.state : { status: 'loading' };
   const current =
     state.status === 'ready' ? currentWeight(state.overview.recent[0] ?? null, state.overview.legacy) : null;
 
   return (
-    <WeightContext value={{ state, current, revision, reload, addEntry, updateEntry, deleteEntry }}>
+    <WeightContext value={{ state, current, revision, reload, addEntry, updateEntry, deleteEntry, saveGoal, deleteGoal }}>
       {children}
     </WeightContext>
   );

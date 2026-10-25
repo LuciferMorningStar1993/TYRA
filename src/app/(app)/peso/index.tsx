@@ -1,25 +1,33 @@
 import { router } from 'expo-router';
-import { Plus, Scale } from 'lucide-react-native';
+import { Plus, Scale, Target } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 
 import { InfoHint } from '@/components/info-hint';
 import { MonthlyWeightSummary } from '@/components/monthly-weight-summary';
 import { RecentWeightActivity } from '@/components/recent-weight-activity';
 import { WeightChart } from '@/components/weight-chart';
+import { startNotice, WeightGoalProgress } from '@/components/weight-goal-progress';
 import { AppText, Button, Card, ListItem, OptionGroup, Screen, type Option } from '@/components/ui';
+import { useWeightGoal } from '@/hooks/use-weight-goal';
 import { HEALTH_HELP } from '@/lib/health-help';
 import { formatDateOnly } from '@/lib/profile';
 import {
+  allRangeBounds,
   chartPoints,
   formatKg,
   formatMeasuredOn,
+  monthlyChartPoints,
+  monthlyChartSummary,
+  monthlyPoints,
+  monthlySegments,
   monthlyStatuses,
   rangeStart,
   wasCorrected,
   type ChartRange,
+  type MonthlySummary,
   type WeightEntry,
 } from '@/lib/weight';
-import { loadHistoryPage, loadWeightRange } from '@/lib/weight-api';
+import { loadAllMonthlySummaries, loadHistoryPage, loadWeightRange } from '@/lib/weight-api';
 import { useSession } from '@/providers/session-provider';
 import { useWeight } from '@/providers/weight-provider';
 
@@ -27,9 +35,14 @@ const RANGE_OPTIONS: readonly Option<ChartRange>[] = [
   { value: '30d', label: '30 días' },
   { value: '90d', label: '90 días' },
   { value: '1y', label: '1 año' },
+  { value: 'all', label: 'Todo' },
 ];
 
-type RangeData = { key: string; status: 'ok'; entries: WeightEntry[] } | { key: string; status: 'error' };
+type RangeData =
+  | { key: string; status: 'ok'; entries: WeightEntry[] }
+  /** «Todo»: siempre promedios mensuales, aunque haya menos de un año de datos. */
+  | { key: string; status: 'ok_monthly'; months: MonthlySummary[] }
+  | { key: string; status: 'error' };
 type ExtraPages = { revision: number; entries: WeightEntry[]; hasMore: boolean };
 
 const openEntry = (id: string) => router.push({ pathname: '/peso/registrar', params: { id } });
@@ -39,6 +52,7 @@ export default function WeightHistoryScreen() {
   const { session } = useSession();
   const userId = session?.user.id ?? null;
   const { state, revision, reload } = useWeight();
+  const goalState = useWeightGoal();
   const [range, setRange] = useState<ChartRange>('90d');
   const [rangeData, setRangeData] = useState<RangeData | null>(null);
   const [extra, setExtra] = useState<ExtraPages | null>(null);
@@ -46,18 +60,25 @@ export default function WeightHistoryScreen() {
   const [pageError, setPageError] = useState(false);
 
   const today = new Date();
-  const from = rangeStart(range, today);
-  const fromKey = formatDateOnly(from);
+  const dailyFrom = range === 'all' ? null : rangeStart(range, today);
+  const fromKey = dailyFrom ? formatDateOnly(dailyFrom) : 'all';
   // La gráfica se vuelve a leer al cambiar el rango o tras cualquier cambio confirmado (revision).
   const rangeKey = `${userId}:${fromKey}:${revision}`;
 
   useEffect(() => {
     if (!userId) return;
     let active = true;
-    void loadWeightRange(userId, fromKey).then((result) => {
-      if (!active) return; // respuesta de un rango, revisión o sesión anterior
-      setRangeData(result.status === 'ok' ? { key: rangeKey, status: 'ok', entries: result.data } : { key: rangeKey, status: 'error' });
-    });
+    if (fromKey === 'all') {
+      void loadAllMonthlySummaries(userId).then((result) => {
+        if (!active) return;
+        setRangeData(result.status === 'ok' ? { key: rangeKey, status: 'ok_monthly', months: result.data } : { key: rangeKey, status: 'error' });
+      });
+    } else {
+      void loadWeightRange(userId, fromKey).then((result) => {
+        if (!active) return; // respuesta de un rango, revisión o sesión anterior
+        setRangeData(result.status === 'ok' ? { key: rangeKey, status: 'ok', entries: result.data } : { key: rangeKey, status: 'error' });
+      });
+    }
     return () => {
       active = false;
     };
@@ -86,6 +107,15 @@ export default function WeightHistoryScreen() {
   const history = [...overview.recent, ...(currentExtra?.entries ?? [])];
   const hasMore = currentExtra ? currentExtra.hasMore : overview.hasMore;
   const chart = rangeData?.key === rangeKey ? rangeData : null;
+  const goalReady = goalState.status === 'ready' ? goalState : null;
+  const goalKg = goalReady && goalReady.progress.status !== 'not_eligible' ? (overview.goal?.targetWeightKg ?? null) : null;
+  const allPoints = chart?.status === 'ok_monthly' ? monthlyPoints(chart.months) : [];
+  const allBounds = allRangeBounds(allPoints, today);
+  const from = dailyFrom ?? allBounds?.from ?? today;
+  const months =
+    chart?.status === 'ok_monthly'
+      ? monthlyStatuses(chart.months, allBounds?.from ?? today, today)
+      : monthlyStatuses(overview.monthly, from, today);
 
   async function loadMore() {
     const last = history[history.length - 1];
@@ -113,6 +143,26 @@ export default function WeightHistoryScreen() {
     <Screen edges={['bottom']}>
       <Button title="Registrar peso" icon={Plus} onPress={() => router.push('/peso/registrar')} />
 
+      {goalReady && goalReady.progress.status !== 'not_eligible' && (goalReady.progress.status !== 'no_goal' || goalReady.progress.canSet) && (
+        <Card>
+          <AppText variant="cardTitle">Meta de peso</AppText>
+          {overview.goal ? (
+            <WeightGoalProgress
+              progress={goalReady.progress}
+              notice={startNotice(overview.goal, goalReady.start, overview.goalStartEntry)}
+            />
+          ) : (
+            <AppText variant="secondary">Puedes fijar una meta opcional y ver tu avance con tus mediciones.</AppText>
+          )}
+          <Button
+            title={overview.goal ? 'Ver meta' : 'Fijar meta'}
+            icon={Target}
+            variant="outline"
+            onPress={() => router.push('/peso/meta')}
+          />
+        </Card>
+      )}
+
       {empty ? (
         <Card>
           <AppText variant="secondary">Aún no registras tu peso. Tus mediciones aparecerán aquí.</AppText>
@@ -128,7 +178,20 @@ export default function WeightHistoryScreen() {
                 No pudimos cargar la gráfica.
               </AppText>
             )}
-            {chart?.status === 'ok' && <WeightChart points={chartPoints(chart.entries)} from={from} to={today} />}
+            {chart?.status === 'ok' && <WeightChart points={chartPoints(chart.entries)} from={from} to={today} goalKg={goalKg} />}
+            {chart?.status === 'ok_monthly' && (
+              <>
+                <AppText variant="bodyStrong">Promedio mensual</AppText>
+                <WeightChart
+                  points={monthlyChartPoints(allPoints)}
+                  segments={monthlySegments(allPoints)}
+                  summary={monthlyChartSummary(allPoints, today)}
+                  from={from}
+                  to={allBounds?.to ?? today}
+                  goalKg={goalKg}
+                />
+              </>
+            )}
             {overview.legacy && (
               <AppText variant="caption">El peso de tu perfil sin fecha confirmada no aparece en la gráfica ni en los resúmenes.</AppText>
             )}
@@ -137,7 +200,7 @@ export default function WeightHistoryScreen() {
           <Card>
             <AppText variant="cardTitle">Resumen por mes</AppText>
             <InfoHint help={HEALTH_HELP.monthlyChange} />
-            <MonthlyWeightSummary months={monthlyStatuses(overview.monthly, from, today)} />
+            <MonthlyWeightSummary months={months} groupByYear={range === 'all'} />
           </Card>
 
           <Card>

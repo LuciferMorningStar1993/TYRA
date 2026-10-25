@@ -46,7 +46,7 @@ function entry(measuredOn: string | null, weightKg: number, version = 1): Weight
 }
 
 function overview(recent: WeightEntry[], legacy: WeightEntry | null = null): LoadResult<WeightOverview> {
-  return { status: 'ok', data: { recent, hasMore: false, legacy, monthly: [] } };
+  return { status: 'ok', data: { recent, hasMore: false, legacy, monthly: [], goal: null, goalStartEntry: null } };
 }
 
 const HEALTH_PROFILE = {
