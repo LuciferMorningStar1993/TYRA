@@ -6,12 +6,16 @@ import { space } from '@/design/tokens';
 import { formatKg, formatMeasuredOn } from '@/lib/weight';
 import { loadCorrections, type WeightCorrection } from '@/lib/weight-api';
 
+/** Lo que no aparece puede haber vencido: nunca se afirma que algo «no se corrigió». */
+export const NO_CORRECTIONS_IN_HISTORY =
+  'No hay correcciones de esta medición en el historial disponible (últimos 180 días).';
+
 export const CORRECTIONS_RETENTION_NOTE =
   'El historial de correcciones se borra automáticamente a los 180 días. Tus mediciones se conservan mientras no las elimines o elimines tu cuenta.';
 
 const formatDate = (value: string | null) => (value ? formatMeasuredOn(value) : 'sin fecha');
 
-function describe(correction: WeightCorrection): string {
+export function describeCorrection(correction: WeightCorrection): string {
   const when = new Date(correction.changedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   const before = `${formatKg(correction.oldWeightKg)}, ${formatDate(correction.oldMeasuredOn)}`;
   if (correction.action === 'deletion') return `${when}: se eliminó (${before}).`;
@@ -48,11 +52,11 @@ export function WeightCorrections({ entryId, version }: { entryId: string; versi
       )}
       {state.status === 'ready' &&
         (state.corrections.length === 0 ? (
-          <AppText variant="secondary">Esta medición no se ha corregido.</AppText>
+          <AppText variant="secondary">{NO_CORRECTIONS_IN_HISTORY}</AppText>
         ) : (
           state.corrections.map((correction) => (
             <AppText key={correction.id} variant="secondary" tabular>
-              {describe(correction)}
+              {describeCorrection(correction)}
             </AppText>
           ))
         ))}

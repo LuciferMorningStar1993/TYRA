@@ -14,6 +14,7 @@ import {
   deleteWeightEntry,
   loadCorrections,
   loadHistoryPage,
+  loadRecentActivity,
   loadWeightEntry,
   loadWeightOverview,
   loadWeightRange,
@@ -35,6 +36,7 @@ jest.mock('@/lib/weight-api', () => ({
   loadWeightRange: jest.fn(),
   loadHistoryPage: jest.fn(),
   loadCorrections: jest.fn(),
+  loadRecentActivity: jest.fn(),
   addWeightEntry: jest.fn(),
   updateWeightEntry: jest.fn(),
   deleteWeightEntry: jest.fn(),
@@ -106,6 +108,7 @@ beforeEach(() => {
   jest.mocked(useLocalSearchParams).mockReturnValue({});
   jest.mocked(loadCorrections).mockResolvedValue({ status: 'ok', data: [] });
   jest.mocked(loadWeightRange).mockResolvedValue({ status: 'ok', data: [] });
+  jest.mocked(loadRecentActivity).mockResolvedValue({ status: 'ok', data: { items: [], hasMore: false } });
 });
 
 describe('Registrar peso', () => {
@@ -159,6 +162,9 @@ describe('Editar medición', () => {
     const root = await renderScreen(<RegisterWeightScreen />, [entry('2026-10-20', 70, 3)]);
     expect(one(root, 'Peso (kg)').props.value).toBe('70');
     expect(allText(root.container)).toMatch(/se borra automáticamente a los 180 días/);
+    // Sin filas no se afirma que nunca se corrigió: pudo vencer.
+    expect(allText(root.container)).toMatch(/en el historial disponible \(últimos 180 días\)/);
+    expect(allText(root.container)).not.toMatch(/no se ha corregido/);
 
     jest.mocked(updateWeightEntry).mockResolvedValueOnce({ status: 'conflict' });
     await type(root, 'Peso (kg)', '69');
@@ -203,6 +209,35 @@ describe('Historial', () => {
   it('sin mediciones muestra un estado vacío', async () => {
     const root = await renderScreen(<WeightHistoryScreen />);
     expect(allText(root.container)).toMatch(/Aún no registras tu peso/);
+    expect(allText(root.container)).toMatch(/No hay correcciones ni eliminaciones en el historial disponible/);
+  });
+
+  it('la actividad reciente se ve aunque ya no queden mediciones, paginada y con el aviso de 180 días', async () => {
+    const deletion = {
+      id: 7,
+      action: 'deletion' as const,
+      changedAt: '2026-10-24T10:00:00Z',
+      oldMeasuredOn: '2026-10-24',
+      oldWeightKg: 68,
+      newMeasuredOn: null,
+      newWeightKg: null,
+    };
+    jest.mocked(loadRecentActivity).mockResolvedValueOnce({ status: 'ok', data: { items: [deletion], hasMore: true } });
+    const root = await renderScreen(<WeightHistoryScreen />);
+    expect(allText(root.container)).toMatch(/Aún no registras tu peso/);
+    expect(allText(root.container)).toMatch(/se eliminó \(68 kg/);
+    expect(allText(root.container)).toMatch(/se borra automáticamente a los 180 días/);
+    expect(loadRecentActivity).toHaveBeenCalledWith('user-a');
+
+    jest.mocked(loadRecentActivity).mockResolvedValueOnce({
+      status: 'ok',
+      data: { items: [{ ...deletion, id: 6, changedAt: '2026-10-20T10:00:00Z', oldWeightKg: 69 }], hasMore: false },
+    });
+    await press(one(root, 'Ver más actividad'));
+    await flush();
+    expect(loadRecentActivity).toHaveBeenLastCalledWith('user-a', '2026-10-24T10:00:00Z');
+    expect(allText(root.container)).toMatch(/se eliminó \(69 kg/);
+    expect(byLabel(root, 'Ver más actividad')).toHaveLength(0);
   });
 
   it('lista con «Corregida», meses sin datos y «Ver más» por cursor de fecha', async () => {

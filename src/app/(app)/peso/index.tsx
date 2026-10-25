@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { InfoHint } from '@/components/info-hint';
 import { MonthlyWeightSummary } from '@/components/monthly-weight-summary';
+import { RecentWeightActivity } from '@/components/recent-weight-activity';
 import { WeightChart } from '@/components/weight-chart';
 import { AppText, Button, Card, ListItem, OptionGroup, Screen, type Option } from '@/components/ui';
 import { HEALTH_HELP } from '@/lib/health-help';
@@ -166,6 +167,9 @@ export default function WeightHistoryScreen() {
           </Card>
         </>
       )}
+
+      {/* Visible también sin mediciones vigentes: lo eliminado sigue en el historial disponible. */}
+      {userId && <RecentWeightActivity userId={userId} revision={revision} />}
     </Screen>
   );
 }

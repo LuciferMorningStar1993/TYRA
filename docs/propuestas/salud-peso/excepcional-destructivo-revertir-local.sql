@@ -1,4 +1,5 @@
--- SOLO SUPABASE LOCAL DE TYRA. Deshace la migración A si falla la verificación del procedimiento.
+-- ⚠️ DESTRUCTIVO Y EXCEPCIONAL. SOLO SUPABASE LOCAL DE TYRA. Elimina las tablas de Salud y sus datos.
+-- La recuperación normal conserva esquema y datos y corrige hacia adelante; esto solo con aprobación.
 -- No toca profiles.weight_kg (la migración A nunca la modifica), así que los pesos originales siguen ahí.
 -- Se pierden solo los datos creados en las tablas nuevas durante la prueba local.
 -- Reemplaza <TIMESTAMP> por la versión de la migración (nombre del archivo en supabase/migrations/).

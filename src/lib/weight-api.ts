@@ -227,27 +227,64 @@ export type WeightCorrection = {
   newWeightKg: number | null;
 };
 
+const AUDIT_COLUMNS = 'id, action, changed_at, old_measured_on, old_weight_kg, new_measured_on, new_weight_kg';
+export const ACTIVITY_PAGE_SIZE = 20;
+
+type AuditRow = Pick<
+  Database['public']['Tables']['weight_entry_audit']['Row'],
+  'id' | 'action' | 'changed_at' | 'old_measured_on' | 'old_weight_kg' | 'new_measured_on' | 'new_weight_kg'
+>;
+
+function toCorrection(row: AuditRow): WeightCorrection {
+  return {
+    id: row.id,
+    action: row.action as WeightCorrection['action'],
+    changedAt: row.changed_at,
+    oldMeasuredOn: row.old_measured_on,
+    oldWeightKg: Number(row.old_weight_kg),
+    newMeasuredOn: row.new_measured_on,
+    newWeightKg: row.new_weight_kg === null ? null : Number(row.new_weight_kg),
+  };
+}
+
 /** Correcciones de una medición (la auditoría vence a los 180 días). */
 export async function loadCorrections(entryId: string): Promise<LoadResult<WeightCorrection[]>> {
   try {
     const { data, error } = await supabase
       .from('weight_entry_audit')
-      .select('id, action, changed_at, old_measured_on, old_weight_kg, new_measured_on, new_weight_kg')
+      .select(AUDIT_COLUMNS)
       .eq('entry_id', entryId)
       .order('changed_at', { ascending: false })
       .order('id', { ascending: false });
     if (error) return { status: 'error', message: error.message };
+    return { status: 'ok', data: (data ?? []).map(toCorrection) };
+  } catch (error) {
+    return { status: 'error', message: errorMessage(error) };
+  }
+}
+
+/**
+ * Actividad reciente: correcciones y eliminaciones de la persona (más reciente primero), aunque ya
+ * no tenga mediciones vigentes. Paginada por cursor `before` = changed_at de la última fila mostrada:
+ * cada escritura es su propia transacción, así que dos filas de la misma persona no comparten
+ * changed_at. Índice (user_id, changed_at desc); la RLS limita al dueño.
+ */
+export async function loadRecentActivity(
+  userId: string,
+  before?: string,
+): Promise<LoadResult<{ items: WeightCorrection[]; hasMore: boolean }>> {
+  try {
+    let query = supabase.from('weight_entry_audit').select(AUDIT_COLUMNS).eq('user_id', userId);
+    if (before) query = query.lt('changed_at', before);
+    const { data, error } = await query
+      .order('changed_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(ACTIVITY_PAGE_SIZE + 1);
+    if (error) return { status: 'error', message: error.message };
+    const rows = data ?? [];
     return {
       status: 'ok',
-      data: (data ?? []).map((row) => ({
-        id: row.id,
-        action: row.action as WeightCorrection['action'],
-        changedAt: row.changed_at,
-        oldMeasuredOn: row.old_measured_on,
-        oldWeightKg: Number(row.old_weight_kg),
-        newMeasuredOn: row.new_measured_on,
-        newWeightKg: row.new_weight_kg === null ? null : Number(row.new_weight_kg),
-      })),
+      data: { items: rows.slice(0, ACTIVITY_PAGE_SIZE).map(toCorrection), hasMore: rows.length > ACTIVITY_PAGE_SIZE },
     };
   } catch (error) {
     return { status: 'error', message: errorMessage(error) };

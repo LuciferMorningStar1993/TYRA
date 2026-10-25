@@ -6,8 +6,8 @@
 >
 > **Borradores:** están en esta carpeta, fuera de `supabase/migrations/`, para que ningún comando los aplique.
 > - `migracion-a-weight-entries.sql`: **entrega inicial**.
-> - `weight_entries.test.sql`: pgTAP, 90 aserciones.
-> - `procedimiento-local.md` y `rollback-local-migracion-a.sql`: cómo aplicar y probar la migración A en el Supabase local, conservando los datos.
+> - `weight_entries.test.sql`: pgTAP, 93 aserciones.
+> - `procedimiento-local.md` y `excepcional-destructivo-revertir-local.sql` (destructivo; solo con aprobación): cómo aplicar y probar la migración A en el Supabase local, conservando los datos.
 > - `posterior/migracion-b-retirar-weight-kg.sql`: **entrega posterior**. No forma parte de la inicial.
 
 ## Cambios respecto a la rev. 2
@@ -251,7 +251,7 @@ Reutilizan `Screen`, `Card`, `TextField`, `OptionGroup`, `Button`, `ListItem`, `
 
 ## 10. Pruebas
 
-**pgTAP** (`weight_entries.test.sql`, 90 aserciones, solo local; no dependen de los datos locales existentes)
+**pgTAP** (`weight_entries.test.sql`, 93 aserciones, solo local; no dependen de los datos locales existentes)
 
 1. **Importación:**
    - Copia el peso sin fecha y lo registra una vez.

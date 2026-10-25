@@ -3,8 +3,10 @@ import {
   addWeightEntry,
   completeOnboarding,
   deleteWeightEntry,
+  ACTIVITY_PAGE_SIZE,
   HISTORY_PAGE_SIZE,
   loadCorrections,
+  loadRecentActivity,
   loadWeightOverview,
   updateWeightEntry,
   weightActionMessage,
@@ -171,6 +173,43 @@ it('correcciones: ordenadas por fecha de cambio, con valores anteriores', async 
     ],
   });
   expect(audit.order).toHaveBeenCalledWith('changed_at', { ascending: false });
+});
+
+describe('loadRecentActivity', () => {
+  const auditRow = (id: number, action = 'correction') => ({
+    id,
+    action,
+    changed_at: `2026-10-${String(id).padStart(2, '0')}T10:00:00Z`,
+    old_measured_on: '2026-10-01',
+    old_weight_kg: 70,
+    new_measured_on: action === 'correction' ? '2026-10-01' : null,
+    new_weight_kg: action === 'correction' ? 69 : null,
+  });
+
+  it('primera página: solo del usuario, más reciente primero, detecta si hay más', async () => {
+    const rows = Array.from({ length: ACTIVITY_PAGE_SIZE + 1 }, (_, index) => auditRow(30 - index));
+    const audit = builder({ data: rows, error: null });
+    jest.mocked(supabase.from).mockReturnValue(audit as never);
+    const result = await loadRecentActivity('user-a');
+    expect(result).toMatchObject({ status: 'ok', data: { hasMore: true } });
+    if (result.status === 'ok') expect(result.data.items).toHaveLength(ACTIVITY_PAGE_SIZE);
+    expect(audit.eq).toHaveBeenCalledWith('user_id', 'user-a');
+    expect(audit.lt).not.toHaveBeenCalled();
+    expect(audit.order).toHaveBeenCalledWith('changed_at', { ascending: false });
+  });
+
+  it('páginas siguientes usan el cursor de fecha de cambio', async () => {
+    const audit = builder({ data: [auditRow(3, 'deletion')], error: null });
+    jest.mocked(supabase.from).mockReturnValue(audit as never);
+    const result = await loadRecentActivity('user-a', '2026-10-05T10:00:00Z');
+    expect(audit.lt).toHaveBeenCalledWith('changed_at', '2026-10-05T10:00:00Z');
+    expect(result).toMatchObject({ status: 'ok', data: { hasMore: false, items: [{ action: 'deletion', newWeightKg: null }] } });
+  });
+
+  it('un error no es «sin actividad»', async () => {
+    jest.mocked(supabase.from).mockReturnValue(builder({ data: null, error: { message: 'JWT expired' } }) as never);
+    await expect(loadRecentActivity('user-a')).resolves.toEqual({ status: 'error', message: 'JWT expired' });
+  });
 });
 
 describe('completeOnboarding', () => {

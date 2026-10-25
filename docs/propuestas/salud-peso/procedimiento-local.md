@@ -109,7 +109,7 @@ cp docs/propuestas/salud-peso/weight_entries.test.sql supabase/tests/database/we
 npm run test:db
 ```
 
-- Debe pasar `profiles_rls` (12) y `weight_entries` (90).
+- Debe pasar `profiles_rls` (12) y `weight_entries` (93).
 - Cada prueba corre en una transacción que se revierte, así que no deja datos.
 
 ```bash
@@ -131,16 +131,17 @@ npm run check:app
 ## 9. Si algo falla (solo local)
 
 1. `supabase migration list --local` para ver si la migración quedó registrada.
-2. Si quedó aplicada, total o parcialmente: edita `<TIMESTAMP>` en `docs/propuestas/salud-peso/rollback-local-migracion-a.sql` y ejecútalo:
+2. Primero se diagnostica y se corrige hacia adelante, conservando el esquema y los datos: una migración nueva probada con pgTAP.
+3. **Solo de forma excepcional y con tu aprobación** (es destructivo: borra las tablas de Salud y sus datos locales): edita `<TIMESTAMP>` en `docs/propuestas/salud-peso/excepcional-destructivo-revertir-local.sql` y ejecútalo:
 
    ```bash
-   docker exec -i supabase_db_TYRA psql -U postgres -d postgres -v ON_ERROR_STOP=1 < docs/propuestas/salud-peso/rollback-local-migracion-a.sql
+   docker exec -i supabase_db_TYRA psql -U postgres -d postgres -v ON_ERROR_STOP=1 < docs/propuestas/salud-peso/excepcional-destructivo-revertir-local.sql
    ```
 
    - `profiles.weight_kg` nunca se modifica, así que los pesos originales siguen intactos.
    - Solo se pierde lo creado en las tablas nuevas durante la prueba.
-3. Si `pg_cron` no estaba instalado antes (paso 2), se puede quitar con `drop extension pg_cron;`.
-4. Los respaldos del paso 3 son el último recurso. Restaurarlos implica reiniciar la base local, y eso **requiere tu aprobación aparte**.
+4. Si `pg_cron` no estaba instalado antes (paso 2), se puede quitar con `drop extension pg_cron;`.
+5. Los respaldos del paso 3 son el último recurso. Restaurarlos implica reiniciar la base local, y eso **requiere tu aprobación aparte**.
 
 ## Qué no se hace
 

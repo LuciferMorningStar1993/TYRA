@@ -12,7 +12,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(90);
+select plan(93);
 
 insert into auth.users (id, instance_id, aud, role, email)
 select ('00000000-0000-0000-0000-0000000000' || s)::uuid, '00000000-0000-0000-0000-000000000000',
@@ -164,6 +164,10 @@ select results_eq($$select action from public.weight_entry_audit
   where entry_id = (select entry_id from public.weight_entry_audit where action = 'deletion')
   order by changed_at, id$$,
   $$values ('correction'), ('deletion')$$, 'historial de correcciones y eliminación de una medición');
+select results_eq($$select action, old_measured_on from public.weight_entry_audit
+  order by changed_at desc, id desc limit 2$$,
+  $$values ('deletion', date '2026-10-24'), ('correction', date '2026-10-23')$$,
+  'actividad reciente de A: más reciente primero (consulta paginada de la app)');
 
 -- Auditoría y registro de importación: solo lectura / sin acceso.
 select throws_ok($$insert into public.weight_entry_audit (entry_id, user_id, action, old_weight_kg, old_version)
@@ -241,6 +245,12 @@ select is_empty($$update public.weight_entries set weight_kg = 99
   where user_id = '00000000-0000-0000-0000-00000000000a' returning id$$, 'B no corrige mediciones de A');
 select is_empty($$delete from public.weight_entries
   where user_id = '00000000-0000-0000-0000-00000000000a' returning id$$, 'B no elimina mediciones de A');
+
+-- Actividad visible aunque no queden mediciones vigentes (D eliminó su único peso).
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}';
+select is_empty('select id from public.weight_entries', 'D ya no tiene mediciones vigentes');
+select results_eq($$select action, old_weight_kg from public.weight_entry_audit order by changed_at desc, id desc$$,
+  $$values ('deletion', 65.0::numeric(5,1))$$, 'D sigue viendo su actividad (eliminación) dentro de la retención');
 
 -- ── 7. anon ───────────────────────────────────────────────────────────────────
 reset role;
