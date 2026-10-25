@@ -23,6 +23,8 @@ export type BmiCategory = 'underweight' | 'normal' | 'overweight' | 'obese';
 export const HEALTH_AGE_POLICY = {
   bmiCategories: { minAge: 20, maxAge: null },
   energyEstimate: { minAge: 20, maxAge: 78 },
+  /** Meta de peso personal: política de producto (mismo umbral adulto). El servidor la replica en set_weight_goal. */
+  weightGoal: { minAge: 20, maxAge: null },
 } as const;
 
 /**

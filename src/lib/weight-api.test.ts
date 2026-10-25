@@ -3,11 +3,15 @@ import {
   addWeightEntry,
   completeOnboarding,
   deleteWeightEntry,
+  deleteWeightGoal,
+  goalActionMessage,
+  loadAllMonthlySummaries,
   ACTIVITY_PAGE_SIZE,
   HISTORY_PAGE_SIZE,
   loadCorrections,
   loadRecentActivity,
   loadWeightOverview,
+  setWeightGoal,
   updateWeightEntry,
   weightActionMessage,
   type OnboardingInput,
@@ -67,7 +71,8 @@ describe('loadWeightOverview', () => {
           ],
           error: null,
         }) as never,
-      );
+      )
+      .mockReturnValueOnce(builder({ data: null, error: null }) as never); // sin meta
 
     const result = await loadWeightOverview('user-a', '2025-10-01');
     expect(result.status).toBe('ok');
@@ -76,6 +81,8 @@ describe('loadWeightOverview', () => {
     expect(result.data.hasMore).toBe(true);
     expect(result.data.legacy).toMatchObject({ measuredOn: null, weightKg: 72.4, origin: 'legacy_profile' });
     expect(result.data.monthly[0]).toMatchObject({ month: '2026-09-01', changeKg: -2 });
+    expect(result.data.goal).toBeNull();
+    expect(result.data.goalStartEntry).toBeNull();
     expect(recent.eq).toHaveBeenCalledWith('user_id', 'user-a');
     expect(recent.not).toHaveBeenCalledWith('measured_on', 'is', null);
   });
@@ -85,7 +92,8 @@ describe('loadWeightOverview', () => {
       .mocked(supabase.from)
       .mockReturnValueOnce(builder({ data: [], error: null }) as never)
       .mockReturnValueOnce(builder({ data: null, error: { message: 'JWT expired' } }) as never)
-      .mockReturnValueOnce(builder({ data: [], error: null }) as never);
+      .mockReturnValueOnce(builder({ data: [], error: null }) as never)
+      .mockReturnValueOnce(builder({ data: null, error: null }) as never);
     await expect(loadWeightOverview('user-a', '2025-10-01')).resolves.toEqual({ status: 'error', message: 'JWT expired' });
   });
 
@@ -305,5 +313,84 @@ describe('completeOnboarding', () => {
   it('un fallo de red no es éxito', async () => {
     jest.mocked(supabase.rpc).mockRejectedValue(new TypeError('Network request failed'));
     await expect(completeOnboarding(input)).resolves.toMatchObject({ status: 'error', reason: 'other' });
+  });
+});
+
+describe('meta de peso', () => {
+  const goalRow = {
+    id: 'g2',
+    target_weight_kg: 68,
+    start_weight_kg: 72.4,
+    start_measured_on: '2026-10-10',
+    start_entry_id: 'id-2026-10-10',
+    start_entry_version: 1,
+    version: 3,
+    set_at: '2026-10-10T12:00:00Z',
+    updated_at: '2026-10-12T12:00:00Z',
+  };
+  const rpcResult = (result: Result) => jest.mocked(supabase.rpc).mockReturnValue({ single: () => Promise.resolve(result) } as never);
+
+  it('el overview trae la meta y la medición de partida (para detectar correcciones)', async () => {
+    jest
+      .mocked(supabase.from)
+      .mockReturnValueOnce(builder({ data: [row('2026-10-20', 70)], error: null }) as never)
+      .mockReturnValueOnce(builder({ data: null, error: null }) as never)
+      .mockReturnValueOnce(builder({ data: [], error: null }) as never)
+      .mockReturnValueOnce(builder({ data: goalRow, error: null }) as never)
+      .mockReturnValueOnce(builder({ data: row('2026-10-10', 71.8, 2), error: null }) as never);
+    const result = await loadWeightOverview('user-a', '2025-10-01');
+    expect(result).toMatchObject({
+      status: 'ok',
+      data: { goal: { id: 'g2', targetWeightKg: 68, startEntryVersion: 1, version: 3 }, goalStartEntry: { version: 2, weightKg: 71.8 } },
+    });
+  });
+
+  it('crear no envía id ni versión; editar envía los leídos', async () => {
+    rpcResult({ data: goalRow, error: null });
+    await expect(setWeightGoal({ targetKg: 68 })).resolves.toMatchObject({ status: 'ok', goal: { id: 'g2' } });
+    expect(supabase.rpc).toHaveBeenLastCalledWith('set_weight_goal', {
+      p_target_weight_kg: 68,
+      p_goal_id: undefined,
+      p_expected_version: undefined,
+      p_reset_start: false,
+    });
+    await setWeightGoal({ targetKg: 67, goal: { id: 'g2', version: 3 }, resetStart: true });
+    expect(supabase.rpc).toHaveBeenLastCalledWith('set_weight_goal', {
+      p_target_weight_kg: 67,
+      p_goal_id: 'g2',
+      p_expected_version: 3,
+      p_reset_start: true,
+    });
+  });
+
+  it.each([
+    [{ code: 'PT409', message: 'goal_conflict' }, 'goal_conflict'],
+    [{ code: 'PT409', message: 'goal_missing' }, 'goal_missing'],
+    [{ code: '22023', message: 'age_not_eligible' }, 'age_not_eligible'],
+    [{ code: '22023', message: 'no_dated_measurement' }, 'no_dated_measurement'],
+    [{ code: '23514', message: 'violates check constraint' }, 'out_of_range'],
+  ])('traduce %o a %s, con mensaje', async (error, status) => {
+    rpcResult({ data: null, error });
+    const result = await setWeightGoal({ targetKg: 68, goal: { id: 'g1', version: 1 } });
+    expect(result).toEqual({ status });
+    expect(goalActionMessage(result)).toBeTruthy();
+  });
+
+  it('eliminar exige id + versión; 0 filas es conflicto (nunca borra otra meta)', async () => {
+    const remove = builder({ data: [], error: null });
+    jest.mocked(supabase.from).mockReturnValue(remove as never);
+    await expect(deleteWeightGoal({ id: 'g1', version: 1 })).resolves.toEqual({ status: 'goal_conflict' });
+    expect(remove.eq).toHaveBeenCalledWith('id', 'g1');
+    expect(remove.eq).toHaveBeenCalledWith('version', 1);
+    jest.mocked(supabase.from).mockReturnValue(builder({ data: [{ id: 'g1' }], error: null }) as never);
+    await expect(deleteWeightGoal({ id: 'g1', version: 1 })).resolves.toEqual({ status: 'deleted' });
+  });
+
+  it('«Todo» lee todos los meses en orden cronológico', async () => {
+    const monthly = builder({ data: [], error: null });
+    jest.mocked(supabase.from).mockReturnValue(monthly as never);
+    await expect(loadAllMonthlySummaries('user-a')).resolves.toEqual({ status: 'ok', data: [] });
+    expect(monthly.gte).not.toHaveBeenCalled();
+    expect(monthly.order).toHaveBeenCalledWith('month', { ascending: true });
   });
 });

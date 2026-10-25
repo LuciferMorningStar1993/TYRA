@@ -193,6 +193,7 @@ describe('healthSummary: política de edad', () => {
     expect(HEALTH_AGE_POLICY).toEqual({
       bmiCategories: { minAge: 20, maxAge: null },
       energyEstimate: { minAge: 20, maxAge: 78 },
+      weightGoal: { minAge: 20, maxAge: null },
     });
     expect(isAgeSupported(19, HEALTH_AGE_POLICY.bmiCategories)).toBe(false);
     expect(isAgeSupported(95, HEALTH_AGE_POLICY.bmiCategories)).toBe(true);

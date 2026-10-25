@@ -158,6 +158,69 @@ export type Database = {
           }
         ];
       };
+      "weight_goals": {
+        Row: {
+          "id": string;
+          "set_at": string;
+          "start_entry_id": string | null;
+          "start_entry_version": number;
+          "start_measured_on": string;
+          "start_weight_kg": number;
+          "target_weight_kg": number;
+          "updated_at": string;
+          "user_id": string;
+          "version": number;
+        };
+        ComputedFields: never;
+        Insert: {
+          "id"?: string;
+          "set_at"?: string;
+          "start_entry_id"?: string | null;
+          "start_entry_version": number;
+          "start_measured_on": string;
+          "start_weight_kg": number;
+          "target_weight_kg": number;
+          "updated_at"?: string;
+          "user_id": string;
+          "version"?: number;
+        };
+        Update: {
+          "id"?: string;
+          "set_at"?: string;
+          "start_entry_id"?: string | null;
+          "start_entry_version"?: number;
+          "start_measured_on"?: string;
+          "start_weight_kg"?: number;
+          "target_weight_kg"?: number;
+          "updated_at"?: string;
+          "user_id"?: string;
+          "version"?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "weight_goals_start_entry_id_fkey";
+            columns: [
+              "start_entry_id"
+            ];
+            isOneToOne: false;
+            referencedRelation: "weight_entries";
+            referencedColumns: [
+              "id"
+            ];
+          },
+          {
+            foreignKeyName: "weight_goals_user_id_fkey";
+            columns: [
+              "user_id"
+            ];
+            isOneToOne: true;
+            referencedRelation: "profiles";
+            referencedColumns: [
+              "id"
+            ];
+          }
+        ];
+      };
       "weight_legacy_client_writes": {
         Row: {
           "first_written_at": string;
@@ -292,6 +355,32 @@ export type Database = {
           "retention"?: string;
         };
         Returns: number;
+      };
+      "set_weight_goal": {
+        Args: {
+          "p_expected_version"?: number;
+          "p_goal_id"?: string;
+          "p_reset_start"?: boolean;
+          "p_target_weight_kg": number;
+        };
+        Returns: {
+          "id": string;
+          "set_at": string;
+          "start_entry_id": string | null;
+          "start_entry_version": number;
+          "start_measured_on": string;
+          "start_weight_kg": number;
+          "target_weight_kg": number;
+          "updated_at": string;
+          "user_id": string;
+          "version": number;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "weight_goals";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
       };
     };
     Enums: {

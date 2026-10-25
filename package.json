@@ -56,7 +56,9 @@
     "test:db": "supabase test db --local",
     "start:qa": "bash scripts/start-qa-local.sh",
     "test:auth-local": "node scripts/local-auth-regression.mjs",
-    "invite:local": "node scripts/invite-local.mjs"
+    "invite:local": "node scripts/invite-local.mjs",
+    "test:goals-concurrency": "bash scripts/local-goal-concurrency.sh",
+    "test:goals-api-local": "node scripts/local-goal-api.mjs"
   },
   "private": true,
   "jest": {
